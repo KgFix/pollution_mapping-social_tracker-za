@@ -1,0 +1,38 @@
+namespace VukaMap.Api.Utilities;
+
+/// <summary>
+/// Haversine formula for calculating the distance between two GPS coordinates.
+/// Used for proximity checks on hotspot resolution (within 50m).
+/// </summary>
+public static class DistanceCalculator
+{
+    private const double EarthRadiusKm = 6371.0;
+
+    /// <summary>
+    /// Returns the distance in kilometres between two lat/lng points.
+    /// </summary>
+    public static double GetDistanceKm(double lat1, double lng1, double lat2, double lng2)
+    {
+        var dLat = DegreesToRadians(lat2 - lat1);
+        var dLng = DegreesToRadians(lng2 - lng1);
+
+        var a = Math.Sin(dLat / 2) * Math.Sin(dLat / 2) +
+                Math.Cos(DegreesToRadians(lat1)) * Math.Cos(DegreesToRadians(lat2)) *
+                Math.Sin(dLng / 2) * Math.Sin(dLng / 2);
+
+        var c = 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
+
+        return EarthRadiusKm * c;
+    }
+
+    /// <summary>
+    /// Returns true if the two points are within the specified distance in km.
+    /// Default threshold is 0.05 km (50 metres).
+    /// </summary>
+    public static bool IsWithinRange(double lat1, double lng1, double lat2, double lng2, double thresholdKm = 0.05)
+    {
+        return GetDistanceKm(lat1, lng1, lat2, lng2) <= thresholdKm;
+    }
+
+    private static double DegreesToRadians(double degrees) => degrees * Math.PI / 180.0;
+}
