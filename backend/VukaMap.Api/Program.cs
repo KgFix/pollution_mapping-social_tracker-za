@@ -1,5 +1,10 @@
+using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using VukaMap.Api.Data;
+
+// Ensure invariant culture so decimal points parse correctly regardless of server locale
+CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
+CultureInfo.DefaultThreadCurrentUICulture = CultureInfo.InvariantCulture;
 
 var builder = WebApplication.CreateBuilder(args);
 

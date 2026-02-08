@@ -3,8 +3,8 @@
 import React from "react"
 
 import { useState, useEffect, useRef, useCallback } from "react"
-import { Camera, Upload, CheckCircle, Zap, MapPin, X } from "lucide-react"
-import { addHotspot, addUserCredits, type Hotspot } from "@/lib/data"
+import { Camera, Upload, CheckCircle, Zap, MapPin, X, Loader2 } from "lucide-react"
+import { createHotspot } from "@/lib/api"
 
 type ReportStep = "upload" | "scanning" | "result" | "success"
 
@@ -15,7 +15,10 @@ export function ReportView({ onReported }: { onReported?: () => void }) {
   const [ecoCredits, setEcoCredits] = useState(0)
   const [userPosition, setUserPosition] = useState<[number, number] | null>(null)
   const [scanProgress, setScanProgress] = useState(0)
+  const [submitting, setSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const selectedFileRef = useRef<File | null>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   // Get user location
@@ -34,6 +37,7 @@ export function ReportView({ onReported }: { onReported?: () => void }) {
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
+    selectedFileRef.current = file
     const reader = new FileReader()
     reader.onload = (ev) => {
       setImagePreview(ev.target?.result as string)
@@ -63,27 +67,31 @@ export function ReportView({ onReported }: { onReported?: () => void }) {
     }, 60)
   }, [])
 
-  const confirmReport = useCallback(() => {
+  const confirmReport = useCallback(async () => {
     if (!userPosition) return
+    setSubmitting(true)
+    setSubmitError(null)
 
-    const newHotspot: Hotspot = {
-      id: `user-${Date.now()}`,
-      lat: userPosition[0] + (Math.random() - 0.5) * 0.01,
-      lng: userPosition[1] + (Math.random() - 0.5) * 0.01,
-      severity,
-      resolved: false,
-      reportedBy: "You",
-      reportedAt: new Date().toISOString().split("T")[0],
-      description: "User-reported pollution spot",
-      city: "Your Area",
-      ecoCredits,
+    try {
+      const formData = new FormData()
+      formData.append("latitude", userPosition[0].toString())
+      formData.append("longitude", userPosition[1].toString())
+      formData.append("description", "User-reported pollution spot")
+      formData.append("city", "Your Area")
+      formData.append("reportedBy", "You")
+      if (selectedFileRef.current) {
+        formData.append("image", selectedFileRef.current)
+      }
+
+      await createHotspot(formData)
+      setStep("success")
+      onReported?.()
+    } catch (err: unknown) {
+      setSubmitError(err instanceof Error ? err.message : "Failed to submit report")
+    } finally {
+      setSubmitting(false)
     }
-
-    addHotspot(newHotspot)
-    addUserCredits(ecoCredits)
-    setStep("success")
-    onReported?.()
-  }, [userPosition, severity, ecoCredits, onReported])
+  }, [userPosition, onReported])
 
   const resetReport = useCallback(() => {
     setStep("upload")
@@ -91,6 +99,8 @@ export function ReportView({ onReported }: { onReported?: () => void }) {
     setSeverity(0)
     setEcoCredits(0)
     setScanProgress(0)
+    setSubmitError(null)
+    selectedFileRef.current = null
   }, [])
 
   return (
@@ -113,6 +123,8 @@ export function ReportView({ onReported }: { onReported?: () => void }) {
           imagePreview={imagePreview}
           onConfirm={confirmReport}
           onCancel={resetReport}
+          submitting={submitting}
+          submitError={submitError}
         />
       )}
       {step === "success" && <SuccessStep onDone={resetReport} />}
@@ -365,12 +377,16 @@ function ResultStep({
   imagePreview,
   onConfirm,
   onCancel,
+  submitting,
+  submitError,
 }: {
   severity: number
   ecoCredits: number
   imagePreview: string | null
   onConfirm: () => void
   onCancel: () => void
+  submitting: boolean
+  submitError: string | null
 }) {
   return (
     <div className="flex flex-1 flex-col px-5 pt-[env(safe-area-inset-top)] animate-fade-in">
@@ -445,22 +461,40 @@ function ResultStep({
       </div>
 
       {/* Actions */}
-      <div className="flex gap-3 pb-4 pt-4">
-        <button
-          type="button"
-          onClick={onCancel}
-          className="flex flex-1 items-center justify-center rounded-2xl border border-border py-3.5 text-sm font-semibold text-foreground transition-colors hover:bg-secondary"
-        >
-          Cancel
-        </button>
-        <button
-          type="button"
-          onClick={onConfirm}
-          className="flex flex-[2] items-center justify-center gap-2 rounded-2xl bg-primary py-3.5 text-sm font-bold text-primary-foreground shadow-lg transition-transform active:scale-[0.98]"
-        >
-          <CheckCircle className="h-4 w-4" />
-          Confirm Report
-        </button>
+      <div className="flex flex-col gap-2 pb-4 pt-4">
+        {submitError && (
+          <div className="rounded-xl bg-destructive/10 px-4 py-2 text-center text-xs font-medium text-destructive">
+            {submitError}
+          </div>
+        )}
+        <div className="flex gap-3">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={submitting}
+            className="flex flex-1 items-center justify-center rounded-2xl border border-border py-3.5 text-sm font-semibold text-foreground transition-colors hover:bg-secondary disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={submitting}
+            className="flex flex-[2] items-center justify-center gap-2 rounded-2xl bg-primary py-3.5 text-sm font-bold text-primary-foreground shadow-lg transition-transform active:scale-[0.98] disabled:opacity-70"
+          >
+            {submitting ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Submitting…
+              </>
+            ) : (
+              <>
+                <CheckCircle className="h-4 w-4" />
+                Confirm Report
+              </>
+            )}
+          </button>
+        </div>
       </div>
     </div>
   )

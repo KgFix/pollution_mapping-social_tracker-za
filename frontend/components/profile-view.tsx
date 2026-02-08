@@ -11,19 +11,54 @@ import {
   CalendarDays,
   Star,
   Flag,
+  Loader2,
 } from "lucide-react"
-import { getUserCredits, USER_TIMELINE, type TimelineEntry } from "@/lib/data"
+import { CURRENT_USER_ID, type TimelineEntry } from "@/lib/data"
+import { fetchProfile, fetchTimeline } from "@/lib/api"
+import type { UserProfile } from "@/lib/data"
 
 export function ProfileView() {
-  const [credits, setCredits] = useState(0)
+  const [profile, setProfile] = useState<UserProfile | null>(null)
+  const [timeline, setTimeline] = useState<TimelineEntry[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    setCredits(getUserCredits())
+    setLoading(true)
+    Promise.all([
+      fetchProfile(CURRENT_USER_ID),
+      fetchTimeline(CURRENT_USER_ID),
+    ])
+      .then(([prof, tl]) => {
+        setProfile(prof)
+        setTimeline(tl)
+        setError(null)
+      })
+      .catch((err) => setError(err.message))
+      .finally(() => setLoading(false))
   }, [])
 
-  // Simulated stats
-  const wasteRemoved = Math.round(credits * 0.18)
-  const nationalRank = credits > 1500 ? 3 : credits > 800 ? 12 : 24
+  if (loading) {
+    return (
+      <div className="flex h-full items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    )
+  }
+
+  if (error || !profile) {
+    return (
+      <div className="flex h-full items-center justify-center bg-background px-5">
+        <div className="rounded-xl bg-destructive/10 px-4 py-3 text-center text-xs font-medium text-destructive">
+          {error || "Profile not found"}
+        </div>
+      </div>
+    )
+  }
+
+  const credits = profile.ecoCredits
+  const wasteRemoved = profile.wasteRemoved
+  const nationalRank = profile.rank
 
   return (
     <div className="flex h-full flex-col overflow-y-auto bg-background animate-fade-in">
@@ -93,7 +128,7 @@ export function ProfileView() {
           {/* Timeline line */}
           <div className="absolute bottom-0 left-4 top-0 w-px bg-border" />
 
-          {USER_TIMELINE.map((entry, index) => (
+          {timeline.map((entry, index) => (
             <TimelineItem key={entry.id} entry={entry} index={index} />
           ))}
         </div>

@@ -1,8 +1,14 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Trophy, MapPin, Users, Navigation } from "lucide-react"
-import { CITY_SCORES, MOCK_USERS, type UserProfile } from "@/lib/data"
+import { Trophy, MapPin, Users, Navigation, Loader2 } from "lucide-react"
+import { type UserProfile } from "@/lib/data"
+import {
+  fetchLeaderboardUsers,
+  fetchLeaderboardCities,
+  fetchLeaderboardNearby,
+  type CityScore,
+} from "@/lib/api"
 
 type Tab = "cities" | "members" | "near"
 type TimeFilter = "24h" | "weekly" | "all"
@@ -10,28 +16,50 @@ type TimeFilter = "24h" | "weekly" | "all"
 export function LeaderboardView() {
   const [activeTab, setActiveTab] = useState<Tab>("cities")
   const [timeFilter, setTimeFilter] = useState<TimeFilter>("all")
-  const [nearbyUsers, setNearbyUsers] = useState<UserProfile[]>([])
 
-  // Simulate nearby users
+  const [users, setUsers] = useState<UserProfile[]>([])
+  const [cities, setCities] = useState<CityScore[]>([])
+  const [nearbyUsers, setNearbyUsers] = useState<UserProfile[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  // Fetch cities on mount
   useEffect(() => {
-    // Take a random subset of users to simulate "near me"
-    const shuffled = [...MOCK_USERS].sort(() => Math.random() - 0.5)
-    setNearbyUsers(shuffled.slice(0, 6))
+    setLoading(true)
+    fetchLeaderboardCities()
+      .then((data) => {
+        setCities(data.sort((a, b) => b.score - a.score))
+        setError(null)
+      })
+      .catch((err) => setError(err.message))
+      .finally(() => setLoading(false))
   }, [])
 
-  // Sort cities by score descending
-  const sortedCities = [...CITY_SCORES].sort((a, b) => b.score - a.score)
+  // Fetch users when time filter changes
+  useEffect(() => {
+    fetchLeaderboardUsers(timeFilter)
+      .then(setUsers)
+      .catch((err) => setError(err.message))
+  }, [timeFilter])
 
-  // Simulate time filter effect on credits
-  const getFilteredCredits = (credits: number) => {
-    if (timeFilter === "24h") return Math.round(credits * 0.05)
-    if (timeFilter === "weekly") return Math.round(credits * 0.2)
-    return credits
-  }
-
-  const sortedUsers = [...MOCK_USERS].sort(
-    (a, b) => getFilteredCredits(b.ecoCredits) - getFilteredCredits(a.ecoCredits)
-  )
+  // Fetch nearby users (use geolocation with JHB fallback)
+  useEffect(() => {
+    if (activeTab !== "near") return
+    const load = (lat: number, lng: number) => {
+      fetchLeaderboardNearby(lat, lng)
+        .then(setNearbyUsers)
+        .catch((err) => setError(err.message))
+    }
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => load(pos.coords.latitude, pos.coords.longitude),
+        () => load(-26.2041, 28.0473),
+        { timeout: 5000 }
+      )
+    } else {
+      load(-26.2041, 28.0473)
+    }
+  }, [activeTab])
 
   const tabs: { id: Tab; label: string; icon: typeof Trophy }[] = [
     { id: "cities", label: "Cities", icon: MapPin },
@@ -98,9 +126,19 @@ export function LeaderboardView() {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-5 pb-4">
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="h-6 w-6 animate-spin text-primary" />
+          </div>
+        ) : error ? (
+          <div className="rounded-xl bg-destructive/10 px-4 py-3 text-center text-xs font-medium text-destructive">
+            {error}
+          </div>
+        ) : (
+          <>
         {activeTab === "cities" && (
           <div className="flex flex-col gap-2">
-            {sortedCities.map((city, index) => (
+            {cities.map((city, index) => (
               <div
                 key={city.city}
                 className="flex items-center gap-3 rounded-2xl bg-card p-3.5 shadow-sm transition-all"
@@ -167,12 +205,12 @@ export function LeaderboardView() {
 
         {activeTab === "members" && (
           <div className="flex flex-col gap-2">
-            {sortedUsers.map((user, index) => (
+            {users.map((user, index) => (
               <UserRow
                 key={user.id}
                 user={user}
-                rank={index + 1}
-                credits={getFilteredCredits(user.ecoCredits)}
+                rank={user.rank || index + 1}
+                credits={user.ecoCredits}
               />
             ))}
           </div>
@@ -190,12 +228,14 @@ export function LeaderboardView() {
               <UserRow
                 key={user.id}
                 user={user}
-                rank={index + 1}
-                credits={getFilteredCredits(user.ecoCredits)}
+                rank={user.rank || index + 1}
+                credits={user.ecoCredits}
                 showDistance
               />
             ))}
           </div>
+        )}
+          </>
         )}
       </div>
     </div>

@@ -8,39 +8,65 @@ import {
   Zap,
   Clock,
   CheckCircle,
+  Loader2,
 } from "lucide-react"
-import { CLEANUP_EVENTS, getJoinedEvents, joinEvent } from "@/lib/data"
+import { type CleanupEvent } from "@/lib/data"
+import { CURRENT_USER_ID } from "@/lib/data"
+import { fetchEvents, joinEvent } from "@/lib/api"
 
 export function EventsView() {
-  const [joinedEvents, setJoinedEvents] = useState<string[]>([])
-  const [celebratingId, setCelebratingId] = useState<string | null>(null)
+  const [events, setEvents] = useState<CleanupEvent[]>([])
+  const [joinedEvents, setJoinedEvents] = useState<Set<number>>(new Set())
+  const [celebratingId, setCelebratingId] = useState<number | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    setJoinedEvents(getJoinedEvents())
+    fetchEvents()
+      .then(setEvents)
+      .catch((err) => setError(err.message))
+      .finally(() => setLoading(false))
   }, [])
 
   const handleJoin = useCallback(
-    async (eventId: string) => {
-      if (joinedEvents.includes(eventId)) return
+    async (eventId: number) => {
+      if (joinedEvents.has(eventId)) return
 
-      const updated = joinEvent(eventId)
-      setJoinedEvents([...updated])
-      setCelebratingId(eventId)
-
-      // Launch confetti
       try {
-        const confetti = (await import("canvas-confetti")).default
-        confetti({
-          particleCount: 80,
-          spread: 60,
-          origin: { y: 0.7 },
-          colors: ["#22C55E", "#10B981", "#059669", "#34D399"],
-        })
-      } catch {
-        // Confetti optional
-      }
+        await joinEvent(eventId, CURRENT_USER_ID)
 
-      setTimeout(() => setCelebratingId(null), 2000)
+        setJoinedEvents((prev) => new Set(prev).add(eventId))
+        // Update local attendees count
+        setEvents((prev) =>
+          prev.map((e) =>
+            e.id === eventId ? { ...e, attendees: e.attendees + 1 } : e
+          )
+        )
+        setCelebratingId(eventId)
+
+        // Launch confetti
+        try {
+          const confetti = (await import("canvas-confetti")).default
+          confetti({
+            particleCount: 80,
+            spread: 60,
+            origin: { y: 0.7 },
+            colors: ["#22C55E", "#10B981", "#059669", "#34D399"],
+          })
+        } catch {
+          // Confetti optional
+        }
+
+        setTimeout(() => setCelebratingId(null), 2000)
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Failed to join"
+        // If already registered, just mark it locally
+        if (msg.includes("already registered")) {
+          setJoinedEvents((prev) => new Set(prev).add(eventId))
+        } else {
+          setError(msg)
+        }
+      }
     },
     [joinedEvents]
   )
@@ -61,9 +87,18 @@ export function EventsView() {
 
       {/* Events List */}
       <div className="flex-1 overflow-y-auto px-5 pb-4">
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="h-6 w-6 animate-spin text-primary" />
+          </div>
+        ) : error ? (
+          <div className="rounded-xl bg-destructive/10 px-4 py-3 text-center text-xs font-medium text-destructive">
+            {error}
+          </div>
+        ) : (
         <div className="flex flex-col gap-3">
-          {CLEANUP_EVENTS.map((event, index) => {
-            const isJoined = joinedEvents.includes(event.id)
+          {events.map((event, index) => {
+            const isJoined = joinedEvents.has(event.id)
             const isCelebrating = celebratingId === event.id
             const eventDate = new Date(event.date)
             const day = eventDate.getDate()
@@ -149,6 +184,7 @@ export function EventsView() {
             )
           })}
         </div>
+        )}
       </div>
     </div>
   )

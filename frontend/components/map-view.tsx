@@ -1,8 +1,9 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
-import { Shield, TrendingUp, X, CheckCircle2, MapPin, AlertTriangle } from "lucide-react"
-import { getHotspots, calculatePurityScore, type Hotspot } from "@/lib/data"
+import { Shield, TrendingUp, X, CheckCircle2, MapPin, AlertTriangle, Loader2 } from "lucide-react"
+import { calculatePurityScore, type Hotspot } from "@/lib/data"
+import { fetchHotspots } from "@/lib/api"
 
 // South Africa bounds
 const SA_CENTER: [number, number] = [-29.0, 25.0]
@@ -28,11 +29,27 @@ export function MapView() {
   const [userPosition, setUserPosition] = useState<[number, number] | null>(null)
   const [isHighZoom, setIsHighZoom] = useState(false)
   const [mapReady, setMapReady] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  // Load hotspots
+  // Load hotspots from API
   useEffect(() => {
-    const spots = getHotspots()
-    setHotspots(spots)
+    let cancelled = false
+    setLoading(true)
+    fetchHotspots()
+      .then((spots) => {
+        if (!cancelled) {
+          setHotspots(spots)
+          setError(null)
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err.message)
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => { cancelled = true }
   }, [])
 
   // Geolocation
@@ -225,6 +242,23 @@ export function MapView() {
 
   return (
     <div className="relative h-full w-full">
+      {/* Loading overlay */}
+      {loading && (
+        <div className="absolute inset-0 z-[2000] flex items-center justify-center bg-background/80">
+          <div className="flex flex-col items-center gap-2">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <span className="text-sm font-medium text-muted-foreground">Loading hotspots…</span>
+          </div>
+        </div>
+      )}
+
+      {/* Error banner */}
+      {error && (
+        <div className="absolute inset-x-3 top-14 z-[2000] rounded-xl bg-destructive/10 px-4 py-2 text-center text-xs font-medium text-destructive">
+          Failed to load: {error}
+        </div>
+      )}
+
       {/* Map container */}
       <div ref={mapRef} className="h-full w-full" />
 
