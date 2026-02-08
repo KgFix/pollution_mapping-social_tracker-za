@@ -1,33 +1,30 @@
 "use client"
 
-import React from "react"
-
 import { useState, useEffect, useRef, useCallback } from "react"
-import { Camera, Upload, CheckCircle, Zap, MapPin, X, Loader2, Sparkles, LogIn } from "lucide-react"
-import { createHotspot } from "@/lib/api"
+import { Camera, Upload, CheckCircle, Zap, X, Loader2, ArrowLeft } from "lucide-react"
+import { resolveHotspot } from "@/lib/api"
 import type { Hotspot } from "@/lib/data"
 
-type ReportStep = "upload" | "scanning" | "result" | "success"
+type CleanupStep = "upload" | "scanning" | "result" | "success"
 
-export function ReportView({ onReported, onCleanupUpload }: { onReported?: () => void; onCleanupUpload?: (hotspot: Hotspot) => void }) {
-  const [step, setStep] = useState<ReportStep>("upload")
+interface CleanupVerifyViewProps {
+  hotspot: Hotspot
+  onComplete?: () => void
+  onBack?: () => void
+}
+
+export function CleanupVerifyView({ hotspot, onComplete, onBack }: CleanupVerifyViewProps) {
+  const [step, setStep] = useState<CleanupStep>("upload")
   const [imagePreview, setImagePreview] = useState<string | null>(null)
-  const [severity, setSeverity] = useState(0)
+  const [cleanlinessScore, setCleanlinessScore] = useState(0)
   const [ecoCredits, setEcoCredits] = useState(0)
-  const [lastCreatedHotspot, setLastCreatedHotspot] = useState<Hotspot | null>(null)
-  const [userPosition, setUserPosition] = useState<[number, number] | null>(null)
   const [scanProgress, setScanProgress] = useState(0)
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
-  const [loggedIn, setLoggedIn] = useState(false)
+  const [userPosition, setUserPosition] = useState<[number, number] | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const selectedFileRef = useRef<File | null>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
-
-  // Check login state
-  useEffect(() => {
-    setLoggedIn(localStorage.getItem("vukamap_logged_in") === "true")
-  }, [])
 
   // Get user location
   useEffect(() => {
@@ -57,13 +54,12 @@ export function ReportView({ onReported, onCleanupUpload }: { onReported?: () =>
     setStep("scanning")
     setScanProgress(0)
 
-    // Generate random severity and credits
-    const sev = Math.round(Math.random() * 60 + 30) // 30-90
-    const credits = Math.round(sev * 0.6 + Math.random() * 15)
-    setSeverity(sev)
+    // Simulate cleanup verification — higher cleanliness = better cleanup
+    const cleanScore = Math.round(Math.random() * 40 + 60) // 60-100
+    const credits = hotspot.ecoCredits
+    setCleanlinessScore(cleanScore)
     setEcoCredits(credits)
 
-    // Animate scan
     let progress = 0
     const interval = setInterval(() => {
       progress += 2
@@ -73,9 +69,9 @@ export function ReportView({ onReported, onCleanupUpload }: { onReported?: () =>
         setTimeout(() => setStep("result"), 300)
       }
     }, 60)
-  }, [])
+  }, [hotspot.ecoCredits])
 
-  const confirmReport = useCallback(async () => {
+  const confirmCleanup = useCallback(async () => {
     if (!userPosition) return
     setSubmitting(true)
     setSubmitError(null)
@@ -84,111 +80,110 @@ export function ReportView({ onReported, onCleanupUpload }: { onReported?: () =>
       const formData = new FormData()
       formData.append("latitude", userPosition[0].toString())
       formData.append("longitude", userPosition[1].toString())
-      formData.append("description", "User-reported pollution spot")
-      formData.append("city", "Your Area")
-      formData.append("reportedBy", localStorage.getItem("vukamap_user_name") || "You")
+      formData.append("claimedBy", localStorage.getItem("vukamap_user_name") || "You")
       if (selectedFileRef.current) {
         formData.append("image", selectedFileRef.current)
       }
 
-      const created = await createHotspot(formData)
-      setLastCreatedHotspot(created)
+      await resolveHotspot(hotspot.id, formData)
       setStep("success")
-      onReported?.()
+      onComplete?.()
     } catch (err: unknown) {
-      setSubmitError(err instanceof Error ? err.message : "Failed to submit report")
+      setSubmitError(err instanceof Error ? err.message : "Failed to submit cleanup verification")
     } finally {
       setSubmitting(false)
     }
-  }, [userPosition, onReported])
-
-  const resetReport = useCallback(() => {
-    setStep("upload")
-    setImagePreview(null)
-    setSeverity(0)
-    setEcoCredits(0)
-    setScanProgress(0)
-    setSubmitError(null)
-    selectedFileRef.current = null
-  }, [])
+  }, [userPosition, hotspot.id, onComplete])
 
   return (
     <div className="flex h-full flex-col bg-background animate-fade-in">
-      {step === "upload" && !loggedIn && (
-        <div className="flex flex-1 flex-col items-center justify-center px-5 text-center">
-          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted">
-            <LogIn className="h-8 w-8 text-muted-foreground" />
-          </div>
-          <h2 className="mt-4 text-lg font-bold text-foreground">Login Required</h2>
-          <p className="mt-2 text-sm text-muted-foreground">
-            You need to log in before you can report pollution spots. Go to the <strong>Me</strong> tab to log in.
-          </p>
-        </div>
-      )}
-      {step === "upload" && loggedIn && (
-        <UploadStep
+      {step === "upload" && (
+        <CleanupUploadStep
+          hotspot={hotspot}
           imagePreview={imagePreview}
           fileInputRef={fileInputRef}
           onFileSelect={handleFileSelect}
           onStartScan={startScanning}
+          onBack={onBack}
         />
       )}
       {step === "scanning" && (
-        <ScanningStep progress={scanProgress} canvasRef={canvasRef} />
+        <CleanupScanningStep progress={scanProgress} canvasRef={canvasRef} />
       )}
       {step === "result" && (
-        <ResultStep
-          severity={severity}
+        <CleanupResultStep
+          hotspot={hotspot}
+          cleanlinessScore={cleanlinessScore}
           ecoCredits={ecoCredits}
           imagePreview={imagePreview}
-          onConfirm={confirmReport}
-          onCancel={resetReport}
+          onConfirm={confirmCleanup}
+          onBack={() => { setStep("upload"); setImagePreview(null); selectedFileRef.current = null }}
           submitting={submitting}
           submitError={submitError}
         />
       )}
-      {step === "success" && (
-        <SuccessStep
-          onDone={resetReport}
-          lastCreatedHotspot={lastCreatedHotspot}
-          onCleanupUpload={onCleanupUpload}
-        />
-      )}
+      {step === "success" && <CleanupSuccessStep ecoCredits={ecoCredits} onDone={onBack} />}
     </div>
   )
 }
 
-function UploadStep({
+function CleanupUploadStep({
+  hotspot,
   imagePreview,
   fileInputRef,
   onFileSelect,
   onStartScan,
+  onBack,
 }: {
+  hotspot: Hotspot
   imagePreview: string | null
   fileInputRef: React.RefObject<HTMLInputElement | null>
   onFileSelect: (e: React.ChangeEvent<HTMLInputElement>) => void
   onStartScan: () => void
+  onBack?: () => void
 }) {
   return (
     <div className="flex flex-1 flex-col px-5 pt-[env(safe-area-inset-top)]">
       <div className="pt-4">
-        <h1 className="text-2xl font-black tracking-tight text-foreground">
-          Report a Spot
-        </h1>
-        <p className="mt-0.5 text-sm text-muted-foreground">
-          Upload a photo and our AI will analyze it
-        </p>
+        <div className="flex items-center gap-2">
+          {onBack && (
+            <button type="button" onClick={onBack} className="rounded-full p-1 hover:bg-secondary" aria-label="Go back">
+              <ArrowLeft className="h-5 w-5 text-foreground" />
+            </button>
+          )}
+          <div>
+            <h1 className="text-2xl font-black tracking-tight text-foreground">
+              Verify Cleanup
+            </h1>
+            <p className="mt-0.5 text-sm text-muted-foreground">
+              Upload a photo of the cleaned spot — {hotspot.city}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Original spot info */}
+      <div className="mt-4 rounded-2xl bg-accent p-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-xs font-semibold text-accent-foreground">Original Report</p>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">{hotspot.description}</p>
+          </div>
+          <span className={`text-sm font-bold ${
+            hotspot.severity > 70 ? "text-destructive" : hotspot.severity > 40 ? "text-warning" : "text-primary"
+          }`}>{hotspot.severity}% dirty</span>
+        </div>
       </div>
 
       {/* Upload area */}
-      <div className="mt-6 flex flex-1 flex-col items-center justify-center">
+      <div className="mt-4 flex flex-1 flex-col items-center justify-center">
         {imagePreview ? (
           <div className="relative w-full">
             <div className="relative aspect-[4/3] w-full overflow-hidden rounded-3xl border-2 border-primary/20 shadow-lg">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={imagePreview || "/placeholder.svg"}
-                alt="Captured pollution"
+                src={imagePreview}
+                alt="Cleanup verification"
                 className="h-full w-full object-cover"
               />
               <button
@@ -206,7 +201,7 @@ function UploadStep({
               className="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-4 text-base font-bold text-primary-foreground shadow-lg transition-transform active:scale-[0.98]"
             >
               <Zap className="h-5 w-5" />
-              Analyze with AI
+              Verify Cleanup
             </button>
           </div>
         ) : (
@@ -220,10 +215,10 @@ function UploadStep({
             </div>
             <div className="text-center">
               <p className="text-base font-bold text-foreground">
-                Take or Upload a Photo
+                Photo the Cleaned Spot
               </p>
               <p className="mt-1 text-sm text-muted-foreground">
-                Capture pollution to earn eco-credits
+                Show us the area after cleanup
               </p>
             </div>
             <div className="flex items-center gap-2 rounded-xl bg-primary/10 px-4 py-2 text-sm font-semibold text-primary">
@@ -243,24 +238,22 @@ function UploadStep({
         onChange={onFileSelect}
       />
 
-      <div className="flex items-center justify-center gap-2 pb-4 pt-3">
-        <MapPin className="h-3.5 w-3.5 text-primary" />
+      <div className="pb-4 pt-3 text-center">
         <span className="text-xs text-muted-foreground">
-          Location will be auto-detected
+          AI will verify cleanup of the same spot
         </span>
       </div>
     </div>
   )
 }
 
-function ScanningStep({
+function CleanupScanningStep({
   progress,
   canvasRef,
 }: {
   progress: number
   canvasRef: React.RefObject<HTMLCanvasElement | null>
 }) {
-  // Neural network scanning animation
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
@@ -275,24 +268,18 @@ function ScanningStep({
     const w = canvas.offsetWidth
     const h = canvas.offsetHeight
 
-    // Grid nodes
     const cols = 8
     const rows = 12
     const nodes: { x: number; y: number; active: boolean }[] = []
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
-        nodes.push({
-          x: (c / (cols - 1)) * w,
-          y: (r / (rows - 1)) * h,
-          active: false,
-        })
+        nodes.push({ x: (c / (cols - 1)) * w, y: (r / (rows - 1)) * h, active: false })
       }
     }
 
     const draw = () => {
       ctx.clearRect(0, 0, w, h)
 
-      // Draw grid lines
       ctx.strokeStyle = "rgba(34, 197, 94, 0.08)"
       ctx.lineWidth = 0.5
       for (let r = 0; r < rows; r++) {
@@ -308,13 +295,9 @@ function ScanningStep({
         ctx.stroke()
       }
 
-      // Activate random nodes
       const activeCount = Math.floor((progress / 100) * nodes.length)
-      nodes.forEach((node, i) => {
-        node.active = i < activeCount
-      })
+      nodes.forEach((node, i) => { node.active = i < activeCount })
 
-      // Draw connections between active nodes
       ctx.strokeStyle = "rgba(34, 197, 94, 0.15)"
       ctx.lineWidth = 1
       nodes.forEach((a, i) => {
@@ -331,17 +314,13 @@ function ScanningStep({
         })
       })
 
-      // Draw nodes
       nodes.forEach((node) => {
         ctx.beginPath()
         ctx.arc(node.x, node.y, node.active ? 3 : 1.5, 0, Math.PI * 2)
-        ctx.fillStyle = node.active
-          ? "rgba(34, 197, 94, 0.8)"
-          : "rgba(34, 197, 94, 0.15)"
+        ctx.fillStyle = node.active ? "rgba(34, 197, 94, 0.8)" : "rgba(34, 197, 94, 0.15)"
         ctx.fill()
       })
 
-      // Scanning line
       const scanY = (progress / 100) * h
       const gradient = ctx.createLinearGradient(0, scanY - 20, 0, scanY + 2)
       gradient.addColorStop(0, "rgba(34, 197, 94, 0)")
@@ -365,52 +344,42 @@ function ScanningStep({
 
   return (
     <div className="relative flex h-full flex-col items-center justify-center bg-foreground">
-      <canvas
-        ref={canvasRef}
-        className="absolute inset-0 h-full w-full"
-      />
+      <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
       <div className="relative z-10 flex flex-col items-center gap-6">
         <div className="flex h-20 w-20 items-center justify-center rounded-full border-2 border-primary/30 bg-primary/10 backdrop-blur-sm">
           <Zap className="h-10 w-10 text-primary" />
         </div>
         <div className="text-center">
-          <h2 className="text-xl font-black text-background">
-            AI Analyzing...
-          </h2>
-          <p className="mt-1 text-sm text-background/60">
-            Scanning pollution severity
-          </p>
+          <h2 className="text-xl font-black text-background">Verifying Cleanup...</h2>
+          <p className="mt-1 text-sm text-background/60">Comparing before & after</p>
         </div>
         <div className="w-48">
           <div className="h-2 overflow-hidden rounded-full bg-background/10">
-            <div
-              className="h-full rounded-full bg-primary transition-all"
-              style={{ width: `${progress}%` }}
-            />
+            <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${progress}%` }} />
           </div>
-          <p className="mt-2 text-center text-xs font-mono text-background/50">
-            {progress}%
-          </p>
+          <p className="mt-2 text-center text-xs font-mono text-background/50">{progress}%</p>
         </div>
       </div>
     </div>
   )
 }
 
-function ResultStep({
-  severity,
+function CleanupResultStep({
+  hotspot,
+  cleanlinessScore,
   ecoCredits,
   imagePreview,
   onConfirm,
-  onCancel,
+  onBack,
   submitting,
   submitError,
 }: {
-  severity: number
+  hotspot: Hotspot
+  cleanlinessScore: number
   ecoCredits: number
   imagePreview: string | null
   onConfirm: () => void
-  onCancel: () => void
+  onBack: () => void
   submitting: boolean
   submitError: string | null
 }) {
@@ -418,54 +387,44 @@ function ResultStep({
     <div className="flex flex-1 flex-col overflow-y-auto px-5 pt-[env(safe-area-inset-top)] pb-2 animate-fade-in">
       <div className="pt-4">
         <h1 className="text-2xl font-black tracking-tight text-foreground">
-          Analysis Complete
+          Cleanup Verified
         </h1>
         <p className="mt-0.5 text-sm text-muted-foreground">
-          AI has assessed the pollution severity
+          AI has verified the cleanup at {hotspot.city}
         </p>
       </div>
 
       <div className="mt-6 flex flex-col gap-4">
-        {/* Preview */}
         {imagePreview && (
           <div className="aspect-[16/9] w-full overflow-hidden rounded-2xl shadow-md">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={imagePreview || "/placeholder.svg"}
-              alt="Analyzed pollution"
-              className="h-full w-full object-cover"
-            />
+            <img src={imagePreview} alt="Cleanup verification" className="h-full w-full object-cover" />
           </div>
         )}
 
-        {/* Severity */}
+        {/* Location match */}
         <div className="rounded-2xl bg-card p-4 shadow-sm">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-bold text-card-foreground">
-              Severity Level
+            <span className="text-sm font-bold text-card-foreground">Location Match</span>
+            <span className="flex items-center gap-1 text-sm font-bold text-primary">
+              <CheckCircle className="h-4 w-4" /> Confirmed
             </span>
-            <span
-              className={`text-2xl font-black ${
-                severity > 70
-                  ? "text-destructive"
-                  : severity > 40
-                    ? "text-warning"
-                    : "text-primary"
-              }`}
-            >
-              {severity}%
-            </span>
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            GPS matches the original report location
+          </p>
+        </div>
+
+        {/* Cleanliness Score */}
+        <div className="rounded-2xl bg-card p-4 shadow-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-bold text-card-foreground">Cleanliness Score</span>
+            <span className="text-2xl font-black text-primary">{cleanlinessScore}%</span>
           </div>
           <div className="mt-2 h-3 overflow-hidden rounded-full bg-secondary">
             <div
-              className={`h-full rounded-full transition-all duration-1000 ${
-                severity > 70
-                  ? "bg-destructive"
-                  : severity > 40
-                    ? "bg-warning"
-                    : "bg-primary"
-              }`}
-              style={{ width: `${severity}%` }}
+              className="h-full rounded-full bg-primary transition-all duration-1000"
+              style={{ width: `${cleanlinessScore}%` }}
             />
           </div>
         </div>
@@ -473,20 +432,15 @@ function ResultStep({
         {/* Credits reward */}
         <div className="rounded-2xl bg-accent p-4">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-semibold text-accent-foreground">
-              Eco-Credit Reward
-            </span>
-            <span className="text-2xl font-black text-primary">
-              +{ecoCredits}
-            </span>
+            <span className="text-sm font-semibold text-accent-foreground">Eco-Credit Reward</span>
+            <span className="text-2xl font-black text-primary">+{ecoCredits}</span>
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
-            Credits will be added to your profile upon confirmation
+            Credits earned for cleaning this spot
           </p>
         </div>
       </div>
 
-      {/* Actions */}
       <div className="flex flex-col gap-2 pb-4 pt-4">
         {submitError && (
           <div className="rounded-xl bg-destructive/10 px-4 py-2 text-center text-xs font-medium text-destructive">
@@ -496,11 +450,11 @@ function ResultStep({
         <div className="flex gap-3">
           <button
             type="button"
-            onClick={onCancel}
+            onClick={onBack}
             disabled={submitting}
             className="flex flex-1 items-center justify-center rounded-2xl border border-border py-3.5 text-sm font-semibold text-foreground transition-colors hover:bg-secondary disabled:opacity-50"
           >
-            Cancel
+            Retake
           </button>
           <button
             type="button"
@@ -516,7 +470,7 @@ function ResultStep({
             ) : (
               <>
                 <CheckCircle className="h-4 w-4" />
-                Confirm Report
+                Confirm Cleanup
               </>
             )}
           </button>
@@ -526,22 +480,14 @@ function ResultStep({
   )
 }
 
-function SuccessStep({
-  onDone,
-  lastCreatedHotspot,
-  onCleanupUpload,
-}: {
-  onDone: () => void
-  lastCreatedHotspot?: Hotspot | null
-  onCleanupUpload?: (hotspot: Hotspot) => void
-}) {
+function CleanupSuccessStep({ ecoCredits, onDone }: { ecoCredits: number; onDone?: () => void }) {
   useEffect(() => {
     const launchConfetti = async () => {
       try {
         const confetti = (await import("canvas-confetti")).default
         confetti({
-          particleCount: 100,
-          spread: 70,
+          particleCount: 150,
+          spread: 80,
           origin: { y: 0.6 },
           colors: ["#22C55E", "#10B981", "#059669", "#34D399"],
         })
@@ -557,32 +503,18 @@ function SuccessStep({
       <div className="flex h-24 w-24 items-center justify-center rounded-full bg-primary/10">
         <CheckCircle className="h-14 w-14 text-primary" />
       </div>
-      <h2 className="mt-6 text-2xl font-black text-foreground">
-        Spot Reported!
-      </h2>
+      <h2 className="mt-6 text-2xl font-black text-foreground">Spot Cleaned!</h2>
       <p className="mt-2 text-center text-sm text-muted-foreground">
-        Your report has been added to the map. A new red hotspot is now visible
-        at your location.
+        You earned <span className="font-bold text-primary">+{ecoCredits}</span> eco-credits.
+        The hotspot has been marked as resolved on the map!
       </p>
-      <div className="mt-8 flex flex-col gap-3 w-full max-w-xs">
-        {lastCreatedHotspot && onCleanupUpload && (
-          <button
-            type="button"
-            onClick={() => onCleanupUpload(lastCreatedHotspot)}
-            className="flex items-center justify-center gap-2 rounded-2xl border-2 border-primary bg-primary/10 px-8 py-3.5 text-sm font-bold text-primary shadow-lg transition-transform active:scale-[0.98]"
-          >
-            <Sparkles className="h-4 w-4" />
-            Upload Cleaned Version
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={onDone}
-          className="flex items-center justify-center gap-2 rounded-2xl bg-primary px-8 py-3.5 text-sm font-bold text-primary-foreground shadow-lg transition-transform active:scale-[0.98]"
-        >
-          Report Another
-        </button>
-      </div>
+      <button
+        type="button"
+        onClick={onDone}
+        className="mt-8 flex items-center justify-center gap-2 rounded-2xl bg-primary px-8 py-3.5 text-sm font-bold text-primary-foreground shadow-lg transition-transform active:scale-[0.98]"
+      >
+        Back to Map
+      </button>
     </div>
   )
 }

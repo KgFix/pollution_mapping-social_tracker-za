@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Hosting;
 using VukaMap.Api.Models;
 
 namespace VukaMap.Api.Data;
@@ -6,11 +7,47 @@ namespace VukaMap.Api.Data;
 /// Seeds the SQLite database with the same mock data that the frontend uses in data.ts.
 /// This ensures API responses match the existing UI out of the box.
 /// Only seeds when tables are empty (safe to call on every startup).
+/// Also copies seed images from frontend/public/seed-images/ into wwwroot/images/.
 /// </summary>
 public static class DbSeeder
 {
-    public static async Task SeedAsync(AppDbContext db)
+    // Seed image file names (must match files in frontend/public/seed-images/)
+    private static readonly string[] TrashImages =
+        ["trash-01.jpg", "trash-02.jpg", "trash-03.jpg", "trash-04.jpg", "trash-05.jpg", "trash-06.jpg"];
+
+    private static readonly string[] CleanImages =
+        ["clean-01.jpg", "clean-02.jpg", "clean-03.jpg", "clean-04.jpg"];
+
+    /// <summary>
+    /// Copies seed images from the frontend public folder into wwwroot/images/ so
+    /// they are serveable by the static file middleware.
+    /// </summary>
+    private static void CopySeedImages(IWebHostEnvironment env)
     {
+        var destDir = Path.Combine(env.WebRootPath, "images");
+        Directory.CreateDirectory(destDir);
+
+        // Walk up to find the repo root (contains the .sln)
+        var dir = env.ContentRootPath;
+        while (dir != null && !File.Exists(Path.Combine(dir, "pollution_mapping-social_tracker-za.sln")))
+            dir = Directory.GetParent(dir)?.FullName;
+
+        if (dir == null) return; // can't locate repo root
+
+        var seedDir = Path.Combine(dir, "frontend", "public", "seed-images");
+        if (!Directory.Exists(seedDir)) return;
+
+        foreach (var src in Directory.GetFiles(seedDir, "*.jpg"))
+        {
+            var dest = Path.Combine(destDir, Path.GetFileName(src));
+            if (!File.Exists(dest))
+                File.Copy(src, dest);
+        }
+    }
+
+    public static async Task SeedAsync(AppDbContext db, IWebHostEnvironment env)
+    {
+        CopySeedImages(env);
         // Users must be saved first so their auto-generated IDs exist for FK references
         if (!db.Users.Any())
         {
@@ -71,9 +108,13 @@ public static class DbSeeder
 
     // ──────────────────────────────────────────────
     //  Hotspots — mirrors INITIAL_HOTSPOTS from data.ts
+    //  Seed images are randomly assigned from the seed-images folder.
     // ──────────────────────────────────────────────
-    private static List<Hotspot> GetHotspots() =>
-    [
+    private static List<Hotspot> GetHotspots()
+    {
+        var rng = new Random(42); // fixed seed for reproducible data
+        var hotspots = new List<Hotspot>
+        {
         // Johannesburg
         new() { Latitude = -26.2041, Longitude = 28.0473, Severity = 78, Resolved = false, ReportedBy = "Thabo M.",   ReportedAt = DateTime.Parse("2026-01-28"), Description = "Illegal dump site near Braamfontein",        City = "Johannesburg",    EcoCredits = 45 },
         new() { Latitude = -26.1929, Longitude = 28.0305, Severity = 65, Resolved = true,  ReportedBy = "Naledi K.",  ReportedAt = DateTime.Parse("2026-01-15"), Description = "Plastic waste along Jukskei River",           City = "Johannesburg",    EcoCredits = 38 },
@@ -119,7 +160,19 @@ public static class DbSeeder
 
         // Nelspruit
         new() { Latitude = -25.4753, Longitude = 30.9694, Severity = 47, Resolved = true,  ReportedBy = "Thandeka S.",ReportedAt = DateTime.Parse("2026-01-17"), Description = "Riverside dumping near Crocodile River",     City = "Nelspruit",       EcoCredits = 27 },
-    ];
+        };
+
+        // Assign random seed images — every hotspot gets a "before" (trash) image;
+        // resolved hotspots also get an "after" (clean) image.
+        foreach (var h in hotspots)
+        {
+            h.ImageBeforeUrl = $"/images/{TrashImages[rng.Next(TrashImages.Length)]}";
+            if (h.Resolved)
+                h.ImageAfterUrl = $"/images/{CleanImages[rng.Next(CleanImages.Length)]}";
+        }
+
+        return hotspots;
+    }
 
     // ──────────────────────────────────────────────
     //  Cleanup Events — mirrors CLEANUP_EVENTS from data.ts

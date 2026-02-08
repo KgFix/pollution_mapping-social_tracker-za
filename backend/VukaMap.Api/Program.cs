@@ -54,8 +54,9 @@ app.MapControllers();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    db.Database.Migrate();          // applies pending migrations
-    await DbSeeder.SeedAsync(db);   // idempotent seed
+    var env = scope.ServiceProvider.GetRequiredService<IWebHostEnvironment>();
+    db.Database.Migrate();                  // applies pending migrations
+    await DbSeeder.SeedAsync(db, env);      // idempotent seed + copy images
 }
 
 app.Run();

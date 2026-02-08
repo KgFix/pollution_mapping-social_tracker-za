@@ -7,6 +7,8 @@ import { LeaderboardView } from "./leaderboard-view"
 import { ReportView } from "./report-view"
 import { ProfileView } from "./profile-view"
 import { EventsView } from "./events-view"
+import { CleanupVerifyView } from "./cleanup-verify-view"
+import type { Hotspot } from "@/lib/data"
 
 type ViewId = "map" | "leaderboard" | "report" | "profile" | "events"
 
@@ -21,22 +23,47 @@ const NAV_ITEMS: { id: ViewId; label: string; icon: typeof Map }[] = [
 export function AppShell() {
   const [activeView, setActiveView] = useState<ViewId>("map")
   const [refreshKey, setRefreshKey] = useState(0)
+  // Cleanup verify overlay state — triggered from map "Claim" or report "Upload cleaned version"
+  const [cleanupHotspot, setCleanupHotspot] = useState<Hotspot | null>(null)
 
   const triggerRefresh = useCallback(() => {
     setRefreshKey((k) => k + 1)
   }, [])
 
+  const openCleanupFlow = useCallback((hotspot: Hotspot) => {
+    setCleanupHotspot(hotspot)
+  }, [])
+
+  const closeCleanupFlow = useCallback(() => {
+    setCleanupHotspot(null)
+    triggerRefresh()
+  }, [triggerRefresh])
+
+  // If cleanup verify flow is active, show it as a full-screen overlay
+  if (cleanupHotspot) {
+    return (
+      <div className="relative mx-auto flex h-[100dvh] max-w-[450px] flex-col overflow-hidden bg-background">
+        <CleanupVerifyView
+          hotspot={cleanupHotspot}
+          onComplete={triggerRefresh}
+          onBack={closeCleanupFlow}
+        />
+      </div>
+    )
+  }
+
   return (
     <div className="relative mx-auto flex h-[100dvh] max-w-[450px] flex-col overflow-hidden bg-background">
       {/* Main content */}
       <div className="flex-1 overflow-hidden">
-        {activeView === "map" && <MapView key={`map-${refreshKey}`} />}
+        {activeView === "map" && <MapView key={`map-${refreshKey}`} onClaimHotspot={openCleanupFlow} />}
         {activeView === "leaderboard" && <LeaderboardView />}
         {activeView === "report" && (
           <ReportView
             onReported={() => {
               triggerRefresh()
             }}
+            onCleanupUpload={openCleanupFlow}
           />
         )}
         {activeView === "events" && <EventsView />}
@@ -44,7 +71,7 @@ export function AppShell() {
       </div>
 
       {/* Bottom Navigation */}
-      <nav className="glass flex items-center justify-around border-t border-border/50 pb-[env(safe-area-inset-bottom)] pt-1">
+      <nav className="glass relative z-[2000] flex items-center justify-around border-t border-border/50 pb-[env(safe-area-inset-bottom)] pt-1">
         {NAV_ITEMS.map((item) => {
           const isActive = activeView === item.id
           const isReport = item.id === "report"

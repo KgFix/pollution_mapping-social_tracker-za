@@ -3,7 +3,6 @@ using Microsoft.EntityFrameworkCore;
 using VukaMap.Api.Data;
 using VukaMap.Api.DTOs;
 using VukaMap.Api.Models;
-using VukaMap.Api.Utilities;
 
 namespace VukaMap.Api.Controllers;
 
@@ -107,7 +106,7 @@ public class HotspotsController : ControllerBase
 
     /// <summary>
     /// Marks a hotspot as cleaned/resolved.
-    /// Performs GPS proximity check (50m), saves after-image, awards eco-credits.
+    /// Saves after-image, awards eco-credits.
     /// </summary>
     [HttpPost("resolve/{id:int}")]
     public async Task<IActionResult> Resolve(int id, [FromForm] ResolveHotspotDto dto)
@@ -119,21 +118,6 @@ public class HotspotsController : ControllerBase
 
         if (hotspot.Resolved)
             return BadRequest(new { message = "This hotspot has already been resolved." });
-
-        // GPS proximity check — must be within 50 metres
-        var distanceKm = DistanceCalculator.GetDistanceKm(
-            dto.Latitude, dto.Longitude,
-            hotspot.Latitude, hotspot.Longitude);
-
-        if (!DistanceCalculator.IsWithinRange(dto.Latitude, dto.Longitude, hotspot.Latitude, hotspot.Longitude))
-        {
-            var distanceMetres = (int)Math.Round(distanceKm * 1000);
-            return BadRequest(new
-            {
-                message = "You are not at the correct location!",
-                distance = $"{distanceMetres}m away (must be within 50m)"
-            });
-        }
 
         // Simulated "AI processing" delay (the flagship fudge)
         await Task.Delay(3000);

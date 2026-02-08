@@ -9,6 +9,7 @@ import {
   Clock,
   CheckCircle,
   Loader2,
+  LogIn,
 } from "lucide-react"
 import { type CleanupEvent } from "@/lib/data"
 import { CURRENT_USER_ID } from "@/lib/data"
@@ -20,6 +21,7 @@ export function EventsView() {
   const [celebratingId, setCelebratingId] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [loginPrompt, setLoginPrompt] = useState(false)
 
   useEffect(() => {
     fetchEvents()
@@ -31,6 +33,14 @@ export function EventsView() {
   const handleJoin = useCallback(
     async (eventId: number) => {
       if (joinedEvents.has(eventId)) return
+
+      // Check login state
+      const isLoggedIn = localStorage.getItem("vukamap_logged_in") === "true"
+      if (!isLoggedIn) {
+        setLoginPrompt(true)
+        setTimeout(() => setLoginPrompt(false), 3000)
+        return
+      }
 
       try {
         await joinEvent(eventId, CURRENT_USER_ID)
@@ -184,6 +194,14 @@ export function EventsView() {
             )
           })}
         </div>
+        )}
+
+        {/* Login prompt toast */}
+        {loginPrompt && (
+          <div className="mt-3 flex items-center gap-2 rounded-xl bg-warning/10 px-4 py-2.5 text-xs font-semibold text-warning animate-fade-in">
+            <LogIn className="h-4 w-4 flex-shrink-0" />
+            Log in first! Go to the Me tab to sign in.
+          </div>
         )}
       </div>
     </div>

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
-import { Shield, TrendingUp, X, CheckCircle2, MapPin, AlertTriangle, Loader2 } from "lucide-react"
+import { Shield, TrendingUp, X, CheckCircle2, MapPin, AlertTriangle, Loader2, Camera, LogIn } from "lucide-react"
 import { calculatePurityScore, type Hotspot } from "@/lib/data"
 import { fetchHotspots } from "@/lib/api"
 
@@ -15,7 +15,7 @@ const SA_BOUNDS: [[number, number], [number, number]] = [
 // Dynamic import for Leaflet (SSR-safe)
 let L: typeof import("leaflet") | null = null
 
-export function MapView() {
+export function MapView({ onClaimHotspot }: { onClaimHotspot?: (hotspot: Hotspot) => void }) {
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstanceRef = useRef<import("leaflet").Map | null>(null)
   const markersLayerRef = useRef<import("leaflet").LayerGroup | null>(null)
@@ -31,6 +31,7 @@ export function MapView() {
   const [mapReady, setMapReady] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [loginPrompt, setLoginPrompt] = useState(false)
 
   // Load hotspots from API
   useEffect(() => {
@@ -396,26 +397,53 @@ export function MapView() {
             <div className="mt-4">
               <p className="text-xs font-semibold text-card-foreground">Visual History</p>
               <div className="mt-2 flex gap-2 overflow-x-auto hide-scrollbar">
-                {[
-                  { label: "Before", color: "bg-destructive/10", borderColor: "border-destructive/30" },
-                  { label: "Day 3", color: "bg-warning/10", borderColor: "border-warning/30" },
-                  { label: "After", color: "bg-primary/10", borderColor: "border-primary/30" },
-                ].map((item) => (
-                  <div
-                    key={item.label}
-                    className={`flex h-16 w-20 flex-shrink-0 flex-col items-center justify-center rounded-xl border ${item.borderColor} ${item.color}`}
-                  >
-                    <span className="text-[10px] font-medium text-muted-foreground">
-                      {item.label}
-                    </span>
+                {/* Before (report) image */}
+                {selectedHotspot.imageBeforeUrl ? (
+                  <div className="flex flex-shrink-0 flex-col items-center gap-1">
+                    <div className="relative h-20 w-24 overflow-hidden rounded-xl border-2 border-destructive">
+                      <img
+                        src={`http://localhost:5292${selectedHotspot.imageBeforeUrl}`}
+                        alt="Report"
+                        className="h-full w-full object-cover"
+                      />
+                    </div>
+                    <span className="text-[9px] font-medium text-muted-foreground">{selectedHotspot.reportedBy}</span>
                   </div>
-                ))}
+                ) : (
+                  <div className="flex flex-shrink-0 flex-col items-center gap-1">
+                    <div className="flex h-20 w-24 flex-col items-center justify-center rounded-xl border border-destructive/30 bg-destructive/10">
+                      <Camera className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-[9px] font-medium text-muted-foreground">No image</span>
+                    </div>
+                    <span className="text-[9px] font-medium text-muted-foreground">{selectedHotspot.reportedBy}</span>
+                  </div>
+                )}
+                {/* After (cleanup) image */}
+                {selectedHotspot.imageAfterUrl ? (
+                  <div className="flex flex-shrink-0 flex-col items-center gap-1">
+                    <div className="relative h-20 w-24 overflow-hidden rounded-xl border-2 border-primary">
+                      <img
+                        src={`http://localhost:5292${selectedHotspot.imageAfterUrl}`}
+                        alt="Cleanup"
+                        className="h-full w-full object-cover"
+                      />
+                    </div>
+                    <span className="text-[9px] font-medium text-muted-foreground">{selectedHotspot.claimedBy || "Anon"}</span>
+                  </div>
+                ) : (
+                  !selectedHotspot.resolved && (
+                    <div className="flex flex-shrink-0 flex-col items-center gap-1">
+                      <div className="flex h-20 w-24 flex-col items-center justify-center rounded-xl border border-dashed border-primary/30 bg-primary/5">
+                        <span className="text-[9px] font-medium text-muted-foreground">Awaiting cleanup</span>
+                      </div>
+                    </div>
+                  )
+                )}
               </div>
             </div>
 
             {/* Details */}
-            <div className="mt-4 flex items-center justify-between text-xs text-muted-foreground">
-              <span>Reported by {selectedHotspot.reportedBy}</span>
+            <div className="mt-4 flex items-center justify-end text-xs text-muted-foreground">
               <span>{selectedHotspot.reportedAt}</span>
             </div>
 
@@ -424,11 +452,29 @@ export function MapView() {
               <button
                 type="button"
                 className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-3.5 text-sm font-bold text-primary-foreground shadow-lg transition-transform active:scale-[0.98]"
-                onClick={closeSheet}
+                onClick={() => {
+                  const isLoggedIn = localStorage.getItem("vukamap_logged_in") === "true"
+                  if (!isLoggedIn) {
+                    setLoginPrompt(true)
+                    setTimeout(() => setLoginPrompt(false), 3000)
+                    return
+                  }
+                  const hotspot = selectedHotspot
+                  closeSheet()
+                  onClaimHotspot?.(hotspot)
+                }}
               >
                 <CheckCircle2 className="h-4 w-4" />
-                Claim Mission (+{selectedHotspot.ecoCredits} credits)
+                Claim & Clean (+{selectedHotspot.ecoCredits} credits)
               </button>
+            )}
+
+            {/* Login prompt toast */}
+            {loginPrompt && (
+              <div className="mt-3 flex items-center gap-2 rounded-xl bg-warning/10 px-4 py-2.5 text-xs font-semibold text-warning animate-fade-in">
+                <LogIn className="h-4 w-4 flex-shrink-0" />
+                Log in first! Go to the Me tab to log in.
+              </div>
             )}
           </div>
         </>

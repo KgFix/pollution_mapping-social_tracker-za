@@ -12,16 +12,50 @@ import {
   Star,
   Flag,
   Loader2,
+  LogIn,
+  LogOut,
+  Pencil,
+  X,
+  Check,
 } from "lucide-react"
 import { CURRENT_USER_ID, type TimelineEntry } from "@/lib/data"
 import { fetchProfile, fetchTimeline } from "@/lib/api"
 import type { UserProfile } from "@/lib/data"
+
+// ── localStorage helpers for simulated auth ──
+function getStoredName(): string | null {
+  if (typeof window === "undefined") return null
+  return localStorage.getItem("vukamap_user_name")
+}
+function setStoredName(name: string) {
+  localStorage.setItem("vukamap_user_name", name)
+}
+function isLoggedIn(): boolean {
+  if (typeof window === "undefined") return false
+  return localStorage.getItem("vukamap_logged_in") === "true"
+}
+function setLoggedIn(v: boolean) {
+  localStorage.setItem("vukamap_logged_in", v ? "true" : "false")
+}
 
 export function ProfileView() {
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [timeline, setTimeline] = useState<TimelineEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // Simulated auth state
+  const [loggedIn, setLoggedInState] = useState(false)
+  const [displayName, setDisplayName] = useState("You")
+  const [showLoginModal, setShowLoginModal] = useState(false)
+  const [editingName, setEditingName] = useState(false)
+  const [nameInput, setNameInput] = useState("")
+
+  // Load auth state from localStorage
+  useEffect(() => {
+    setLoggedInState(isLoggedIn())
+    const stored = getStoredName()
+    if (stored) setDisplayName(stored)
+  }, [])
 
   useEffect(() => {
     setLoading(true)
@@ -37,6 +71,29 @@ export function ProfileView() {
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false))
   }, [])
+
+  const handleLogin = (name: string) => {
+    const trimmed = name.trim() || "You"
+    setDisplayName(trimmed)
+    setStoredName(trimmed)
+    setLoggedIn(true)
+    setLoggedInState(true)
+    setShowLoginModal(false)
+  }
+
+  const handleLogout = () => {
+    setLoggedIn(false)
+    setLoggedInState(false)
+    setDisplayName("You")
+    setStoredName("You")
+  }
+
+  const handleSaveName = () => {
+    const trimmed = nameInput.trim() || displayName
+    setDisplayName(trimmed)
+    setStoredName(trimmed)
+    setEditingName(false)
+  }
 
   if (loading) {
     return (
@@ -56,27 +113,88 @@ export function ProfileView() {
     )
   }
 
-  const credits = profile.ecoCredits
-  const wasteRemoved = profile.wasteRemoved
-  const nationalRank = profile.rank
+  const credits = loggedIn ? profile.ecoCredits : 0
+  const wasteRemoved = loggedIn ? profile.wasteRemoved : 0
+  const nationalRank = loggedIn ? profile.rank : 0
+  const initials = loggedIn ? displayName.slice(0, 2).toUpperCase() : "?"
 
   return (
     <div className="flex h-full flex-col overflow-y-auto bg-background animate-fade-in">
+      {/* Login Modal */}
+      {showLoginModal && (
+        <LoginModal
+          onLogin={handleLogin}
+          onClose={() => setShowLoginModal(false)}
+        />
+      )}
+
       {/* Header */}
       <div className="bg-primary px-5 pb-8 pt-[env(safe-area-inset-top)]">
         <div className="pt-4">
           <div className="flex items-center gap-3">
             <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary-foreground/20 text-lg font-black text-primary-foreground">
-              YO
+              {initials}
             </div>
-            <div>
-              <h1 className="text-xl font-black text-primary-foreground">
-                Your Profile
-              </h1>
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                {editingName ? (
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="text"
+                      value={nameInput}
+                      onChange={(e) => setNameInput(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && handleSaveName()}
+                      className="w-32 rounded-lg bg-primary-foreground/20 px-2 py-1 text-sm font-bold text-primary-foreground placeholder:text-primary-foreground/50 outline-none"
+                      placeholder="Your name"
+                      autoFocus
+                    />
+                    <button type="button" onClick={handleSaveName} className="rounded-full p-1 hover:bg-primary-foreground/10" aria-label="Save">
+                      <Check className="h-4 w-4 text-primary-foreground" />
+                    </button>
+                    <button type="button" onClick={() => setEditingName(false)} className="rounded-full p-1 hover:bg-primary-foreground/10" aria-label="Cancel">
+                      <X className="h-4 w-4 text-primary-foreground" />
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <h1 className="text-xl font-black text-primary-foreground">
+                      {loggedIn ? displayName : "Not Logged In"}
+                    </h1>
+                    {loggedIn && (
+                      <button
+                        type="button"
+                        onClick={() => { setNameInput(displayName); setEditingName(true) }}
+                        className="rounded-full p-1 hover:bg-primary-foreground/10"
+                        aria-label="Edit name"
+                      >
+                        <Pencil className="h-3.5 w-3.5 text-primary-foreground/70" />
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
               <p className="text-sm text-primary-foreground/70">
-                Eco Warrior since Jan 2026
+                {loggedIn ? "Eco Warrior since Jan 2026" : "Log in to track your impact"}
               </p>
             </div>
+            {/* Login / Logout button */}
+            <button
+              type="button"
+              onClick={loggedIn ? handleLogout : () => setShowLoginModal(true)}
+              className="flex items-center gap-1.5 rounded-xl bg-primary-foreground/20 px-3 py-2 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary-foreground/30"
+            >
+              {loggedIn ? (
+                <>
+                  <LogOut className="h-3.5 w-3.5" />
+                  Logout
+                </>
+              ) : (
+                <>
+                  <LogIn className="h-3.5 w-3.5" />
+                  Login
+                </>
+              )}
+            </button>
           </div>
         </div>
       </div>
@@ -97,11 +215,12 @@ export function ProfileView() {
         <StatCard
           icon={Hash}
           label="National Rank"
-          value={`#${nationalRank}`}
+          value={loggedIn ? `#${nationalRank}` : "-"}
         />
       </div>
 
       {/* Badges section */}
+      {loggedIn && (
       <div className="mt-5 px-5">
         <h2 className="text-sm font-bold text-foreground">Badges</h2>
         <div className="mt-2 flex gap-2 overflow-x-auto hide-scrollbar">
@@ -120,8 +239,10 @@ export function ProfileView() {
           ))}
         </div>
       </div>
+      )}
 
       {/* Timeline */}
+      {loggedIn ? (
       <div className="mt-5 flex-1 px-5 pb-4">
         <h2 className="text-sm font-bold text-foreground">Activity Timeline</h2>
         <div className="relative mt-3">
@@ -133,6 +254,13 @@ export function ProfileView() {
           ))}
         </div>
       </div>
+      ) : (
+      <div className="mt-8 flex flex-1 flex-col items-center justify-center px-5 pb-4 text-center">
+        <LogIn className="h-10 w-10 text-muted-foreground/40" />
+        <p className="mt-3 text-sm font-semibold text-muted-foreground">Log in to see your activity</p>
+        <p className="mt-1 text-xs text-muted-foreground/70">Your reports, cleanups and badges will appear here</p>
+      </div>
+      )}
     </div>
   )
 }
@@ -149,11 +277,10 @@ function StatCard({
   highlight?: boolean
 }) {
   const [animatedValue, setAnimatedValue] = useState("0")
-  const hasAnimated = useRef(false)
+  const prevValueRef = useRef(value)
 
   useEffect(() => {
-    if (hasAnimated.current) return
-    hasAnimated.current = true
+    prevValueRef.current = value
 
     // Parse numeric portion for animation
     const numericStr = value.replace(/[^0-9.]/g, "")
@@ -248,6 +375,47 @@ function TimelineItem({
           </span>
         </div>
         <div className="mt-1.5 text-[10px] text-muted-foreground">{entry.date}</div>
+      </div>
+    </div>
+  )
+}
+
+function LoginModal({
+  onLogin,
+  onClose,
+}: {
+  onLogin: (name: string) => void
+  onClose: () => void
+}) {
+  const [name, setName] = useState("")
+
+  return (
+    <div className="fixed inset-0 z-[3000] flex items-center justify-center bg-foreground/40 animate-fade-in">
+      <div className="mx-5 w-full max-w-sm rounded-3xl bg-card p-6 shadow-2xl animate-slide-up">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-black text-card-foreground">Welcome to VukaMap</h2>
+          <button type="button" onClick={onClose} className="rounded-full p-1 hover:bg-secondary" aria-label="Close">
+            <X className="h-5 w-5 text-muted-foreground" />
+          </button>
+        </div>
+        <p className="mt-1 text-sm text-muted-foreground">Enter your name to get started</p>
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && onLogin(name)}
+          placeholder="Your display name"
+          className="mt-4 w-full rounded-2xl border border-border bg-muted px-4 py-3 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+          autoFocus
+        />
+        <button
+          type="button"
+          onClick={() => onLogin(name)}
+          className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-3.5 text-sm font-bold text-primary-foreground shadow-lg transition-transform active:scale-[0.98]"
+        >
+          <LogIn className="h-4 w-4" />
+          Sign In
+        </button>
       </div>
     </div>
   )
