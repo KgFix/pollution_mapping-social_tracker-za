@@ -74,6 +74,10 @@ public class HotspotsController : ControllerBase
     [HttpPost]
     public async Task<ActionResult<HotspotResponseDto>> Create([FromForm] CreateHotspotDto dto)
     {
+        _logger.LogInformation("=== CREATE HOTSPOT REQUEST RECEIVED ===");
+        _logger.LogInformation("Latitude: {Lat}, Longitude: {Lon}, HasImage: {HasImage}",
+            dto.Latitude, dto.Longitude, dto.Image != null);
+        
         // Step 1: AI Analysis with EXIF extraction (if image provided)
         ImageAnalysisResult? analysisResult = null;
         string? imageUrl = null;
@@ -275,5 +279,19 @@ public class HotspotsController : ControllerBase
         ClaimedBy = h.ClaimedBy,
         ImageBeforeUrl = h.ImageBeforeUrl,
         ImageAfterUrl = h.ImageAfterUrl,
+        
+        // AI Image Analysis Metadata
+        AiDirtiness = h.AiDirtiness,
+        AnalysisMethod = h.AnalysisMethod,
+        GpsValidated = h.GpsValidated,
+        ExifLatitude = h.ExifLatitude,
+        ExifLongitude = h.ExifLongitude,
+        HasExifGps = h.HasExifGps,
+        ExifDateTaken = h.ExifDateTaken,
+        CameraInfo = h.CameraInfo,
+        Software = h.Software,
+        CleanlinessScore = h.CleanlinessScore,
+        LocationMatchDistance = h.LocationMatchDistance,
+        CleanupLocationVerified = h.CleanupLocationVerified,
     };
 }

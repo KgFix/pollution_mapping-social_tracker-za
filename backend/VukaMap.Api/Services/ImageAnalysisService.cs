@@ -234,6 +234,15 @@ public class ImageAnalysisService
 
         var analysis = await _visionClient!.AnalyzeImageInStreamAsync(stream, visualFeatures: features);
 
+        // Log all tags found by Azure
+        _logger.LogInformation("Azure Vision found {TagCount} tags: {Tags}",
+            analysis.Tags.Count,
+            string.Join(", ", analysis.Tags.Select(t => $"{t.Name}({t.Confidence:F2})")));
+        
+        _logger.LogInformation("Azure Vision found {ObjectCount} objects: {Objects}",
+            analysis.Objects.Count,
+            string.Join(", ", analysis.Objects.Select(o => $"{o.ObjectProperty}({o.Confidence:F2})")));
+
         // Count pollution-related objects and tags
         var wasteKeywords = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {

@@ -53,54 +53,64 @@ export function ReportView({ onReported, onCleanupUpload }: { onReported?: () =>
     reader.readAsDataURL(file)
   }, [])
 
-  const startScanning = useCallback(() => {
+  const startScanning = useCallback(async () => {
+    if (!userPosition || !selectedFileRef.current) return
+    
     setStep("scanning")
     setScanProgress(0)
+    setSubmitError(null)
 
-    // Generate random severity and credits
-    const sev = Math.round(Math.random() * 60 + 30) // 30-90
-    const credits = Math.round(sev * 0.6 + Math.random() * 15)
-    setSeverity(sev)
-    setEcoCredits(credits)
-
-    // Animate scan
+    // Animate scan progress
     let progress = 0
     const interval = setInterval(() => {
       progress += 2
       setScanProgress(progress)
       if (progress >= 100) {
         clearInterval(interval)
-        setTimeout(() => setStep("result"), 300)
       }
     }, 60)
-  }, [])
-
-  const confirmReport = useCallback(async () => {
-    if (!userPosition) return
-    setSubmitting(true)
-    setSubmitError(null)
 
     try {
+      // Submit to backend for AI analysis
       const formData = new FormData()
       formData.append("latitude", userPosition[0].toString())
       formData.append("longitude", userPosition[1].toString())
       formData.append("description", "User-reported pollution spot")
       formData.append("city", "Your Area")
       formData.append("reportedBy", localStorage.getItem("vukamap_user_name") || "You")
-      if (selectedFileRef.current) {
-        formData.append("image", selectedFileRef.current)
-      }
+      formData.append("image", selectedFileRef.current)
 
       const created = await createHotspot(formData)
+      
+      // Use severity and credits from backend AI analysis
+      setSeverity(created.severity)
+      setEcoCredits(created.ecoCredits)
       setLastCreatedHotspot(created)
+      
+      clearInterval(interval)
+      setScanProgress(100)
+      setTimeout(() => setStep("result"), 300)
+    } catch (err: unknown) {
+      clearInterval(interval)
+      setSubmitError(err instanceof Error ? err.message : "Failed to analyze image")
+      setStep("upload")
+    }
+  }, [userPosition])
+
+  const confirmReport = useCallback(async () => {
+    if (!lastCreatedHotspot) return
+    setSubmitting(true)
+    
+    try {
+      // Hotspot already created during scanning, just show success
       setStep("success")
       onReported?.()
     } catch (err: unknown) {
-      setSubmitError(err instanceof Error ? err.message : "Failed to submit report")
+      setSubmitError(err instanceof Error ? err.message : "Failed to confirm report")
     } finally {
       setSubmitting(false)
     }
-  }, [userPosition, onReported])
+  }, [lastCreatedHotspot, onReported])
 
   const resetReport = useCallback(() => {
     setStep("upload")
@@ -131,6 +141,7 @@ export function ReportView({ onReported, onCleanupUpload }: { onReported?: () =>
           fileInputRef={fileInputRef}
           onFileSelect={handleFileSelect}
           onStartScan={startScanning}
+          submitError={submitError}
         />
       )}
       {step === "scanning" && (
@@ -163,11 +174,13 @@ function UploadStep({
   fileInputRef,
   onFileSelect,
   onStartScan,
+  submitError,
 }: {
   imagePreview: string | null
   fileInputRef: React.RefObject<HTMLInputElement | null>
   onFileSelect: (e: React.ChangeEvent<HTMLInputElement>) => void
   onStartScan: () => void
+  submitError: string | null
 }) {
   return (
     <div className="flex flex-1 flex-col px-5 pt-[env(safe-area-inset-top)]">
@@ -179,6 +192,12 @@ function UploadStep({
           Upload a photo and our AI will analyze it
         </p>
       </div>
+
+      {submitError && (
+        <div className="mt-4 rounded-xl bg-destructive/10 border border-destructive/20 px-4 py-3">
+          <p className="text-sm text-destructive font-medium">{submitError}</p>
+        </div>
+      )}
 
       {/* Upload area */}
       <div className="mt-6 flex flex-1 flex-col items-center justify-center">
@@ -438,11 +457,11 @@ function ResultStep({
           </div>
         )}
 
-        {/* Severity */}
+        {/* Pollution Rating */}
         <div className="rounded-2xl bg-card p-4 shadow-sm">
           <div className="flex items-center justify-between">
             <span className="text-sm font-bold text-card-foreground">
-              Severity Level
+              Pollution Rating
             </span>
             <span
               className={`text-2xl font-black ${

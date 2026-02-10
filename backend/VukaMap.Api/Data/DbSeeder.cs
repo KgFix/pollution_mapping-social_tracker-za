@@ -4,50 +4,76 @@ using VukaMap.Api.Models;
 namespace VukaMap.Api.Data;
 
 /// <summary>
-/// Seeds the SQLite database with the same mock data that the frontend uses in data.ts.
-/// This ensures API responses match the existing UI out of the box.
+/// Seeds the SQLite database with 150 hotspots spread across South Africa.
+/// Uses images from wwwroot/uploads/dirty and wwwroot/uploads/clean folders.
+/// - 120 dirty (unresolved) hotspots with 1 dirty image each
+/// - 30 clean (resolved) hotspots with 1 dirty (before) and 1 clean (after) image each
 /// Only seeds when tables are empty (safe to call on every startup).
-/// Also copies seed images from frontend/public/seed-images/ into wwwroot/images/.
 /// </summary>
 public static class DbSeeder
 {
-    // Seed image file names (must match files in frontend/public/seed-images/)
-    private static readonly string[] TrashImages =
-        ["trash-01.jpg", "trash-02.jpg", "trash-03.jpg", "trash-04.jpg", "trash-05.jpg", "trash-06.jpg"];
+    // South African cities and towns with coordinates (lat, lng, radius for distribution)
+    // Expanded to cover all regions and provinces, keeping all hotspots on land within SA borders
+    private static readonly (string Name, double Lat, double Lng, double Radius)[] SouthAfricanCities =
+    [
+        // Gauteng (major urban centers)
+        ("Johannesburg", -26.2041, 28.0473, 0.12),
+        ("Pretoria", -25.7479, 28.2293, 0.10),
+        ("Vereeniging", -26.6496, 27.9269, 0.05),
+        
+        // Western Cape
+        ("Cape Town", -33.9249, 18.4241, 0.12),
+        ("George", -33.9608, 22.4617, 0.05),
+        ("Paarl", -33.7341, 18.9645, 0.04),
+        ("Worcester", -33.6464, 19.4483, 0.04),
+        
+        // KwaZulu-Natal
+        ("Durban", -29.8587, 31.0218, 0.10),
+        ("Pietermaritzburg", -29.6009, 30.3794, 0.06),
+        ("Richards Bay", -28.7831, 32.0378, 0.05),
+        
+        // Eastern Cape
+        ("Port Elizabeth", -33.9180, 25.5701, 0.08),
+        ("East London", -33.0153, 27.9116, 0.06),
+        ("Mthatha", -31.5887, 28.7842, 0.05),
+        ("Grahamstown", -33.3042, 26.5328, 0.04),
+        
+        // Free State
+        ("Bloemfontein", -29.0852, 26.1596, 0.08),
+        ("Welkom", -27.9772, 26.7050, 0.05),
+        
+        // Northern Cape
+        ("Kimberley", -28.7320, 24.7499, 0.06),
+        ("Upington", -28.4478, 21.2561, 0.05),
+        
+        // North West
+        ("Rustenburg", -25.6672, 27.2423, 0.05),
+        ("Mahikeng", -25.8631, 25.6437, 0.05),
+        
+        // Mpumalanga
+        ("Nelspruit", -25.4753, 30.9694, 0.06),
+        ("Witbank", -25.8738, 29.2333, 0.05),
+        
+        // Limpopo
+        ("Polokwane", -23.9045, 29.4689, 0.06),
+        ("Tzaneen", -23.8329, 30.1630, 0.05)
+    ];
 
-    private static readonly string[] CleanImages =
-        ["clean-01.jpg", "clean-02.jpg", "clean-03.jpg", "clean-04.jpg"];
+    private static readonly string[] DirtyImageFiles =
+    [
+        "1.jpg", "2.jpg", "3.jpg", "4.jpg", "5.jpg", "6.jpg", "7.jpg", "8.jpg", "9.jpg", "10.jpg",
+        "11.jpg", "12.jpg", "13.jpg", "14.jpg", "15.jpg", "16.jpg", "17.jpg", "18.jpg", "19.jpg", "20.jpg",
+        "21.jpg", "22.jpg", "23.jpg", "24.jpg", "25.jpg", "26.jpg", "27.jpg", "28.jpg", "29.jpg", "30.jpg",
+        "31.jpg", "Untitled.jpg"
+    ];
 
-    /// <summary>
-    /// Copies seed images from the frontend public folder into wwwroot/images/ so
-    /// they are serveable by the static file middleware.
-    /// </summary>
-    private static void CopySeedImages(IWebHostEnvironment env)
-    {
-        var destDir = Path.Combine(env.WebRootPath, "images");
-        Directory.CreateDirectory(destDir);
-
-        // Walk up to find the repo root (contains the .sln)
-        var dir = env.ContentRootPath;
-        while (dir != null && !File.Exists(Path.Combine(dir, "pollution_mapping-social_tracker-za.sln")))
-            dir = Directory.GetParent(dir)?.FullName;
-
-        if (dir == null) return; // can't locate repo root
-
-        var seedDir = Path.Combine(dir, "frontend", "public", "seed-images");
-        if (!Directory.Exists(seedDir)) return;
-
-        foreach (var src in Directory.GetFiles(seedDir, "*.jpg"))
-        {
-            var dest = Path.Combine(destDir, Path.GetFileName(src));
-            if (!File.Exists(dest))
-                File.Copy(src, dest);
-        }
-    }
+    private static readonly string[] CleanImageFiles =
+    [
+        "1.jpg", "2.jpg", "3.jpg", "4.jpg", "5.jpg", "6.jpg", "7.jpg", "8.jpg", "9.jpg", "10.jpg", "11.jpg"
+    ];
 
     public static async Task SeedAsync(AppDbContext db, IWebHostEnvironment env)
     {
-        CopySeedImages(env);
         // Users must be saved first so their auto-generated IDs exist for FK references
         if (!db.Users.Any())
         {
@@ -84,6 +110,51 @@ public static class DbSeeder
         }
     }
 
+    /// <summary>
+    /// Generates a random coordinate near a city center with the specified radius.
+    /// Uses normal distribution for more natural clustering.
+    /// </summary>
+    private static (double Lat, double Lng) GenerateRandomCoordinate(Random rng, double centerLat, double centerLng, double radius)
+    {
+        // Use Box-Muller transform for normal distribution
+        var u1 = 1.0 - rng.NextDouble();
+        var u2 = 1.0 - rng.NextDouble();
+        var randStdNormal = Math.Sqrt(-2.0 * Math.Log(u1)) * Math.Sin(2.0 * Math.PI * u2);
+        
+        var angle = rng.NextDouble() * 2 * Math.PI;
+        var distance = Math.Abs(randStdNormal) * radius * 0.5; // 0.5 to keep most within radius
+        
+        var lat = centerLat + (distance * Math.Cos(angle));
+        var lng = centerLng + (distance * Math.Sin(angle));
+        
+        return (lat, lng);
+    }
+
+    /// <summary>
+    /// Generates a random severity between 30 and 95.
+    /// </summary>
+    private static int GenerateRandomSeverity(Random rng) => rng.Next(30, 96);
+
+    private static readonly string[] PollutionDescriptions =
+    [
+        "Illegal dumping site", "Plastic waste accumulation", "Construction debris", 
+        "Overflowing waste bins", "Littering on sidewalks", "Industrial waste dumping",
+        "Hazardous materials", "Tyre dumping area", "Food waste accumulation", 
+        "Electronic waste pile", "Medical waste concern", "Oil spill residue",
+        "Broken glass scattered", "Metal scrap dumping", "Textile waste", 
+        "Packaging materials littered", "Garden waste dumping", "Paint containers dumped",
+        "Chemical containers", "Building rubble", "Furniture dumping", "Appliance waste",
+        "Vehicle parts scattered", "Mattress dumping", "Shopping trolleys abandoned"
+    ];
+
+    private static readonly string[] ReporterNames =
+    [
+        "Thabo M.", "Ayanda K.", "Sipho N.", "Naledi T.", "Pieter V.", "Fatima A.",
+        "Bongani S.", "Priya N.", "Themba G.", "Zanele D.", "Johan B.", "Lerato P.",
+        "Ahmed R.", "Nomsa T.", "Kofi A.", "Linda F.", "Tshepo M.", "Anele K.",
+        "Megan S.", "Kagiso B.", "Refilwe N.", "Vusi M.", "Mpho L.", "Thandeka S."
+    ];
+
     // ──────────────────────────────────────────────
     //  Users — mirrors MOCK_USERS from data.ts
     // ──────────────────────────────────────────────
@@ -107,68 +178,54 @@ public static class DbSeeder
     ];
 
     // ──────────────────────────────────────────────
-    //  Hotspots — mirrors INITIAL_HOTSPOTS from data.ts
-    //  Seed images are randomly assigned from the seed-images folder.
+    //  Hotspots — 150 hotspots across South Africa
+    //  120 dirty (unresolved) with 1 dirty image
+    //  30 clean (resolved) with 1 dirty + 1 clean image
+    //  All clustered around cities/towns to keep within SA borders
     // ──────────────────────────────────────────────
     private static List<Hotspot> GetHotspots()
     {
-        var rng = new Random(42); // fixed seed for reproducible data
-        var hotspots = new List<Hotspot>
+        var rng = new Random(43); // changed seed for new distribution
+        var hotspots = new List<Hotspot>();
+        var baseDate = DateTime.Parse("2026-01-01");
+
+        // Track which images we've used for variety
+        var dirtyImageIndex = 0;
+        var cleanImageIndex = 0;
+
+        // Generate all 150 hotspots around cities/towns (safer than random rural coordinates)
+        for (int i = 0; i < 150; i++)
         {
-        // Johannesburg
-        new() { Latitude = -26.2041, Longitude = 28.0473, Severity = 78, Resolved = false, ReportedBy = "Thabo M.",   ReportedAt = DateTime.Parse("2026-01-28"), Description = "Illegal dump site near Braamfontein",        City = "Johannesburg",    EcoCredits = 45 },
-        new() { Latitude = -26.1929, Longitude = 28.0305, Severity = 65, Resolved = true,  ReportedBy = "Naledi K.",  ReportedAt = DateTime.Parse("2026-01-15"), Description = "Plastic waste along Jukskei River",           City = "Johannesburg",    EcoCredits = 38 },
-        new() { Latitude = -26.2309, Longitude = 28.0583, Severity = 89, Resolved = false, ReportedBy = "Sipho N.",   ReportedAt = DateTime.Parse("2026-02-01"), Description = "Construction debris on vacant lot",           City = "Johannesburg",    EcoCredits = 52 },
-        new() { Latitude = -26.1496, Longitude = 28.0080, Severity = 42, Resolved = true,  ReportedBy = "Zanele D.",  ReportedAt = DateTime.Parse("2026-01-20"), Description = "Overflowing bins at Randburg market",         City = "Johannesburg",    EcoCredits = 25 },
-        new() { Latitude = -26.2615, Longitude = 28.0195, Severity = 71, Resolved = false, ReportedBy = "Bongani S.", ReportedAt = DateTime.Parse("2026-02-03"), Description = "Tyre dumping near Soweto",                    City = "Johannesburg",    EcoCredits = 42 },
-        new() { Latitude = -26.1076, Longitude = 28.0567, Severity = 55, Resolved = true,  ReportedBy = "Lerato P.",  ReportedAt = DateTime.Parse("2026-01-10"), Description = "Littering along Sandton streets",             City = "Johannesburg",    EcoCredits = 30 },
-        new() { Latitude = -26.1825, Longitude = 28.0127, Severity = 83, Resolved = false, ReportedBy = "Mandla Z.",  ReportedAt = DateTime.Parse("2026-02-04"), Description = "Hazardous waste near Auckland Park",          City = "Johannesburg",    EcoCredits = 50 },
+            var city = SouthAfricanCities[rng.Next(SouthAfricanCities.Length)];
+            var (lat, lng) = GenerateRandomCoordinate(rng, city.Lat, city.Lng, city.Radius);
+            
+            bool isResolved = i >= 120; // Last 30 hotspots are resolved (120-149)
+            var severity = GenerateRandomSeverity(rng);
+            var reportedAt = baseDate.AddDays(rng.Next(0, 40));
+            
+            var hotspot = new Hotspot
+            {
+                Latitude = lat,
+                Longitude = lng,
+                Severity = severity,
+                Resolved = isResolved,
+                ReportedBy = ReporterNames[rng.Next(ReporterNames.Length)],
+                ReportedAt = reportedAt,
+                Description = PollutionDescriptions[rng.Next(PollutionDescriptions.Length)],
+                City = city.Name,
+                EcoCredits = (int)(severity * 0.6) + rng.Next(10, 25),
+                ImageBeforeUrl = $"/uploads/dirty/{DirtyImageFiles[dirtyImageIndex % DirtyImageFiles.Length]}",
+            };
 
-        // Cape Town
-        new() { Latitude = -33.9249, Longitude = 18.4241, Severity = 35, Resolved = true,  ReportedBy = "Ayanda M.",  ReportedAt = DateTime.Parse("2026-01-25"), Description = "Beach litter at Sea Point",                  City = "Cape Town",       EcoCredits = 20 },
-        new() { Latitude = -33.9608, Longitude = 18.4745, Severity = 62, Resolved = false, ReportedBy = "Pieter V.",  ReportedAt = DateTime.Parse("2026-01-30"), Description = "Waste overflow near Woodstock",               City = "Cape Town",       EcoCredits = 36 },
-        new() { Latitude = -33.8900, Longitude = 18.5108, Severity = 48, Resolved = true,  ReportedBy = "Fatima A.",  ReportedAt = DateTime.Parse("2026-01-18"), Description = "Dumping near Table Bay",                      City = "Cape Town",       EcoCredits = 28 },
-        new() { Latitude = -33.9400, Longitude = 18.3800, Severity = 72, Resolved = false, ReportedBy = "Johan B.",   ReportedAt = DateTime.Parse("2026-02-02"), Description = "Plastic pollution at Camps Bay",              City = "Cape Town",       EcoCredits = 43 },
-        new() { Latitude = -34.0000, Longitude = 18.4600, Severity = 30, Resolved = true,  ReportedBy = "Nomsa T.",   ReportedAt = DateTime.Parse("2026-01-08"), Description = "Street litter near Observatory",              City = "Cape Town",       EcoCredits = 18 },
-        new() { Latitude = -33.9550, Longitude = 18.5300, Severity = 57, Resolved = true,  ReportedBy = "David L.",   ReportedAt = DateTime.Parse("2026-01-22"), Description = "Industrial waste near Salt River",            City = "Cape Town",       EcoCredits = 33 },
+            if (isResolved)
+            {
+                hotspot.ImageAfterUrl = $"/uploads/clean/{CleanImageFiles[cleanImageIndex % CleanImageFiles.Length]}";
+                hotspot.ClaimedBy = ReporterNames[rng.Next(ReporterNames.Length)];
+                cleanImageIndex++;
+            }
 
-        // Durban
-        new() { Latitude = -29.8587, Longitude = 31.0218, Severity = 91, Resolved = false, ReportedBy = "Themba G.",  ReportedAt = DateTime.Parse("2026-02-01"), Description = "Severe pollution at Umgeni River",            City = "Durban",          EcoCredits = 55 },
-        new() { Latitude = -29.8833, Longitude = 31.0500, Severity = 67, Resolved = false, ReportedBy = "Priya N.",   ReportedAt = DateTime.Parse("2026-01-29"), Description = "Beach waste at North Beach",                  City = "Durban",          EcoCredits = 39 },
-        new() { Latitude = -29.8200, Longitude = 31.0050, Severity = 45, Resolved = true,  ReportedBy = "Siyanda W.", ReportedAt = DateTime.Parse("2026-01-12"), Description = "Littering near Umhlanga",                    City = "Durban",          EcoCredits = 26 },
-        new() { Latitude = -29.9000, Longitude = 30.9800, Severity = 78, Resolved = false, ReportedBy = "Ahmed R.",   ReportedAt = DateTime.Parse("2026-02-03"), Description = "Toxic dump near Pinetown",                   City = "Durban",          EcoCredits = 47 },
-        new() { Latitude = -29.8700, Longitude = 31.0400, Severity = 53, Resolved = true,  ReportedBy = "Grace M.",   ReportedAt = DateTime.Parse("2026-01-16"), Description = "Harbour area waste accumulation",             City = "Durban",          EcoCredits = 31 },
-
-        // Pretoria
-        new() { Latitude = -25.7479, Longitude = 28.2293, Severity = 60, Resolved = false, ReportedBy = "Kofi A.",    ReportedAt = DateTime.Parse("2026-01-31"), Description = "Street waste in Hatfield",                   City = "Pretoria",        EcoCredits = 35 },
-        new() { Latitude = -25.7300, Longitude = 28.2100, Severity = 40, Resolved = true,  ReportedBy = "Linda F.",   ReportedAt = DateTime.Parse("2026-01-14"), Description = "Park littering at Pretoria Botanical Gardens",City = "Pretoria",        EcoCredits = 24 },
-        new() { Latitude = -25.7700, Longitude = 28.2500, Severity = 74, Resolved = false, ReportedBy = "Tshepo M.",  ReportedAt = DateTime.Parse("2026-02-02"), Description = "Construction waste in Mamelodi",              City = "Pretoria",        EcoCredits = 44 },
-
-        // Port Elizabeth
-        new() { Latitude = -33.9180, Longitude = 25.5701, Severity = 56, Resolved = false, ReportedBy = "Anele K.",   ReportedAt = DateTime.Parse("2026-01-27"), Description = "Beach pollution near Summerstrand",           City = "Port Elizabeth",  EcoCredits = 33 },
-        new() { Latitude = -33.9600, Longitude = 25.6000, Severity = 38, Resolved = true,  ReportedBy = "Megan S.",   ReportedAt = DateTime.Parse("2026-01-11"), Description = "Littering at Central area",                  City = "Port Elizabeth",  EcoCredits = 22 },
-
-        // Bloemfontein
-        new() { Latitude = -29.0852, Longitude = 26.1596, Severity = 49, Resolved = false, ReportedBy = "Kagiso B.",  ReportedAt = DateTime.Parse("2026-01-26"), Description = "Illegal dump off N1 highway",                City = "Bloemfontein",    EcoCredits = 29 },
-        new() { Latitude = -29.1000, Longitude = 26.1800, Severity = 33, Resolved = true,  ReportedBy = "Refilwe N.", ReportedAt = DateTime.Parse("2026-01-09"), Description = "Park waste in Naval Hill area",               City = "Bloemfontein",    EcoCredits = 20 },
-
-        // East London
-        new() { Latitude = -33.0153, Longitude = 27.9116, Severity = 64, Resolved = false, ReportedBy = "Vusi M.",    ReportedAt = DateTime.Parse("2026-02-01"), Description = "River pollution near Buffalo River",          City = "East London",     EcoCredits = 37 },
-
-        // Polokwane
-        new() { Latitude = -23.9045, Longitude = 29.4689, Severity = 51, Resolved = false, ReportedBy = "Mpho L.",    ReportedAt = DateTime.Parse("2026-01-28"), Description = "Market waste overflow",                      City = "Polokwane",       EcoCredits = 30 },
-
-        // Nelspruit
-        new() { Latitude = -25.4753, Longitude = 30.9694, Severity = 47, Resolved = true,  ReportedBy = "Thandeka S.",ReportedAt = DateTime.Parse("2026-01-17"), Description = "Riverside dumping near Crocodile River",     City = "Nelspruit",       EcoCredits = 27 },
-        };
-
-        // Assign random seed images — every hotspot gets a "before" (trash) image;
-        // resolved hotspots also get an "after" (clean) image.
-        foreach (var h in hotspots)
-        {
-            h.ImageBeforeUrl = $"/images/{TrashImages[rng.Next(TrashImages.Length)]}";
-            if (h.Resolved)
-                h.ImageAfterUrl = $"/images/{CleanImages[rng.Next(CleanImages.Length)]}";
+            dirtyImageIndex++;
+            hotspots.Add(hotspot);
         }
 
         return hotspots;

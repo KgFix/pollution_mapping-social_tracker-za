@@ -18,4 +18,18 @@ public class HotspotResponseDto
     public string? ClaimedBy { get; set; }
     public string? ImageBeforeUrl { get; set; }
     public string? ImageAfterUrl { get; set; }
+    
+    // AI Image Analysis Metadata
+    public int? AiDirtiness { get; set; }
+    public string? AnalysisMethod { get; set; }
+    public bool? GpsValidated { get; set; }
+    public double? ExifLatitude { get; set; }
+    public double? ExifLongitude { get; set; }
+    public bool HasExifGps { get; set; }
+    public DateTime? ExifDateTaken { get; set; }
+    public string? CameraInfo { get; set; }
+    public string? Software { get; set; }
+    public int? CleanlinessScore { get; set; }
+    public double? LocationMatchDistance { get; set; }
+    public bool? CleanupLocationVerified { get; set; }
 }
