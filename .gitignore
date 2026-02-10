@@ -97,8 +97,15 @@ dist/
 *.swo
 
 ########################################
-# Local appsettings
+# Local appsettings & Secrets
 ########################################
-# Ignore environment-specific ASP.NET Core appsettings
+# Ignore environment-specific appsettings (contains Azure credentials, connection strings, etc.)
 **/appsettings.Development.json
-**/appsettings.json
+**/appsettings.Local.json
+**/appsettings.*.json
+# BUT keep the base appsettings.json (has structure with empty values)
+!**/appsettings.json
+
+# User secrets
+**/secrets.json
+UserSecrets/

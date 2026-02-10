@@ -1,6 +1,7 @@
 using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using VukaMap.Api.Data;
+using VukaMap.Api.Services;
 
 // Ensure invariant culture so decimal points parse correctly regardless of server locale
 CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
@@ -16,6 +17,9 @@ builder.Services.AddOpenApi();
 // EF Core — SQLite
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")));
+
+// Image Analysis Service (EXIF + Azure Computer Vision)
+builder.Services.AddSingleton<ImageAnalysisService>();
 
 // CORS — allow the Next.js dev server
 builder.Services.AddCors(options =>

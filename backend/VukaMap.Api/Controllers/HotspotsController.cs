@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using VukaMap.Api.Data;
 using VukaMap.Api.DTOs;
 using VukaMap.Api.Models;
+using VukaMap.Api.Services;
 
 namespace VukaMap.Api.Controllers;
 
@@ -12,11 +13,19 @@ public class HotspotsController : ControllerBase
 {
     private readonly AppDbContext _context;
     private readonly IWebHostEnvironment _env;
+    private readonly ImageAnalysisService _analysisService;
+    private readonly ILogger<HotspotsController> _logger;
 
-    public HotspotsController(AppDbContext context, IWebHostEnvironment env)
+    public HotspotsController(
+        AppDbContext context,
+        IWebHostEnvironment env,
+        ImageAnalysisService analysisService,
+        ILogger<HotspotsController> logger)
     {
         _context = context;
         _env = env;
+        _analysisService = analysisService;
+        _logger = logger;
     }
 
     // ─── GET /api/hotspots?city= ─────────────────────────────
@@ -60,24 +69,38 @@ public class HotspotsController : ControllerBase
 
     /// <summary>
     /// Creates a new pollution report. Accepts multipart/form-data with optional image.
+    /// Analyzes image with AI to determine dirtiness and extract metadata.
     /// </summary>
     [HttpPost]
     public async Task<ActionResult<HotspotResponseDto>> Create([FromForm] CreateHotspotDto dto)
     {
-        // Save uploaded image if provided
+        // Step 1: AI Analysis with EXIF extraction (if image provided)
+        ImageAnalysisResult? analysisResult = null;
         string? imageUrl = null;
+
         if (dto.Image is not null && dto.Image.Length > 0)
         {
+            // Analyze image before saving
+            analysisResult = await _analysisService.AnalyzeDirtyImageAsync(
+                dto.Image,
+                dto.Latitude,
+                dto.Longitude);
+
+            // Save image after analysis
             imageUrl = await SaveImageAsync(dto.Image);
+
+            _logger.LogInformation(
+                "Image analyzed: Dirtiness={Dirtiness}%, Method={Method}, GPS={HasGps}",
+                analysisResult.DirtinessPercentage,
+                analysisResult.AnalysisMethod,
+                analysisResult.GpsValidated);
         }
 
-        // Auto-generate severity (30-90 range, matching the frontend AI simulation)
-        var random = new Random();
-        var severity = random.Next(30, 91);
+        // Step 2: Use AI dirtiness or fallback to random
+        var severity = analysisResult?.DirtinessPercentage ?? Random.Shared.Next(30, 91);
+        var ecoCredits = analysisResult?.EcoCredits ?? (int)Math.Round(severity * 0.6 + Random.Shared.Next(0, 16));
 
-        // Calculate eco-credits based on severity (matching frontend formula)
-        var ecoCredits = (int)Math.Round(severity * 0.6 + random.Next(0, 16));
-
+        // Step 3: Create hotspot with all metadata
         var hotspot = new Hotspot
         {
             Latitude = dto.Latitude,
@@ -90,6 +113,19 @@ public class HotspotsController : ControllerBase
             EcoCredits = ecoCredits,
             Resolved = false,
             ImageBeforeUrl = imageUrl,
+
+            // Store AI analysis metadata
+            AiDirtiness = analysisResult?.DirtinessPercentage,
+            AnalysisMethod = analysisResult?.AnalysisMethod ?? "No image provided",
+            GpsValidated = analysisResult?.GpsValidated,
+            ExifLatitude = analysisResult?.Metadata?.Latitude,
+            ExifLongitude = analysisResult?.Metadata?.Longitude,
+            HasExifGps = analysisResult?.Metadata?.HasGps ?? false,
+            ExifDateTaken = analysisResult?.Metadata?.DateTaken,
+            CameraInfo = analysisResult?.Metadata != null
+                ? $"{analysisResult.Metadata.CameraMake} {analysisResult.Metadata.CameraModel}".Trim()
+                : null,
+            Software = analysisResult?.Metadata?.Software,
         };
 
         _context.Hotspots.Add(hotspot);
@@ -106,7 +142,7 @@ public class HotspotsController : ControllerBase
 
     /// <summary>
     /// Marks a hotspot as cleaned/resolved.
-    /// Saves after-image, awards eco-credits.
+    /// Verifies cleanup with AI: checks same location and cleanliness.
     /// </summary>
     [HttpPost("resolve/{id:int}")]
     public async Task<IActionResult> Resolve(int id, [FromForm] ResolveHotspotDto dto)
@@ -119,20 +155,58 @@ public class HotspotsController : ControllerBase
         if (hotspot.Resolved)
             return BadRequest(new { message = "This hotspot has already been resolved." });
 
-        // Simulated "AI processing" delay (the flagship fudge)
-        await Task.Delay(3000);
+        // Step 1: AI Cleanup Verification (if image provided)
+        CleanupVerificationResult? verificationResult = null;
+        string? afterImageUrl = null;
 
-        // Save after-image if provided
         if (dto.AfterImage is not null && dto.AfterImage.Length > 0)
         {
-            hotspot.ImageAfterUrl = await SaveImageAsync(dto.AfterImage);
+            // Verify cleanup with AI during the "processing" delay
+            verificationResult = await _analysisService.VerifyCleanupImageAsync(
+                dto.AfterImage,
+                hotspot.Latitude,
+                hotspot.Longitude,
+                hotspot.ImageBeforeUrl);
+
+            // Save after-image
+            afterImageUrl = await SaveImageAsync(dto.AfterImage);
+
+            _logger.LogInformation(
+                "Cleanup verified for hotspot {Id}: SameLocation={SameLocation}, Clean={Cleanliness}%, Method={Method}",
+                id,
+                verificationResult.IsSameLocation,
+                verificationResult.CleanlinessScore,
+                verificationResult.AnalysisMethod);
+
+            // Optional: Reject if verification failed (uncomment to enforce strict verification)
+            // if (!verificationResult.IsVerified)
+            // {
+            //     return BadRequest(new { message = verificationResult.VerificationMessage });
+            // }
+        }
+        else
+        {
+            // No image provided - still allow but log warning
+            _logger.LogWarning("Cleanup for hotspot {Id} submitted without after-image", id);
         }
 
-        // Resolve the hotspot
-        hotspot.Resolved = true;
-        hotspot.ClaimedBy = "Anonymous";  // TODO: replace with authenticated user
+        // Simulated "AI processing" delay (maintains UX consistency)
+        await Task.Delay(3000);
 
-        // Award eco-credits to the first user (temporary until auth is added)
+        // Step 2: Update hotspot with verification data
+        hotspot.ImageAfterUrl = afterImageUrl;
+        hotspot.Resolved = true;
+        hotspot.ClaimedBy = "Anonymous"; // TODO: replace with authenticated user
+
+        // Store verification results
+        if (verificationResult != null)
+        {
+            hotspot.CleanlinessScore = verificationResult.CleanlinessScore;
+            hotspot.LocationMatchDistance = verificationResult.DistanceFromOriginal;
+            hotspot.CleanupLocationVerified = verificationResult.IsSameLocation;
+        }
+
+        // Step 3: Award eco-credits to the first user (temporary until auth is added)
         var firstUser = await _context.Users.FirstOrDefaultAsync();
         if (firstUser is not null)
         {
@@ -157,6 +231,9 @@ public class HotspotsController : ControllerBase
         {
             message = $"Area Cleaned! +{hotspot.EcoCredits} Credits",
             ecoCredits = hotspot.EcoCredits,
+            verified = verificationResult?.IsVerified ?? false,
+            cleanliness = verificationResult?.CleanlinessScore,
+            verificationMessage = verificationResult?.VerificationMessage,
         });
     }
 
