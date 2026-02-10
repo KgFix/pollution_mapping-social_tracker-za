@@ -95,3 +95,10 @@ dist/
 # Swap files
 *.swp
 *.swo
+
+########################################
+# Local appsettings
+########################################
+# Ignore environment-specific ASP.NET Core appsettings
+**/appsettings.Development.json
+**/appsettings.json
