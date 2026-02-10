@@ -41,6 +41,9 @@ _ReSharper*/
 *.ncrunch*
 *.VisualState.xml
 *.vscode/
+# Local .NET SDK installations
+.dotnet/
+dotnet-install.ps1
 
 ########################################
 # Environment / Secrets
