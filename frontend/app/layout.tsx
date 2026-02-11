@@ -26,8 +26,14 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${inter.variable} font-sans antialiased`}>
-        {children}
+      <body className={`${inter.variable} font-sans antialiased demo-presentation`}>
+        <div className="demo-background" />
+        <div className="demo-phone-container">
+          <div className="demo-phone-frame" />
+          <div className="demo-app-content">
+            {children}
+          </div>
+        </div>
       </body>
     </html>
   )
